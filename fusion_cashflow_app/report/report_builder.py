@@ -22,7 +22,7 @@ def fmt_metric(k, v):
     elif isinstance(v, (int, float)):
         return f"${v:,.0f}" if v is not None else "—"
     else:
-        return str(v)
+        return "—" if v is None else str(v)
 
 
 
