@@ -318,17 +318,26 @@ def run_cashflow_scenario(config):
     ramp_up_rate_per_year = config["ramp_up_rate_per_year"]
     years_construction = project_energy_start_year - construction_start_year
     annual_energy_output_mwh = (net_electric_power_mw * 8760) * capacity_factor
+
     if fuel_type == "Lithium-Solid":
-        fuel_price_per_g = 152.928 #95% enrichment sigma Aldrich
-        fuel_grams_per_mwh = 82500 #Market analysis doc
+        fuel_price_per_g = 152.928  # 95% enrichment sigma Aldrich
+        # Physics-based burn rate for lithium
+        burn_kg_per_year_per_gw = 100  # 100 kg per GW-year
+        burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
+        fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
     elif fuel_type == "Tritium":
         fuel_price_per_g = 300
-        fuel_grams_per_mwh = 0.00947
+        fuel_grams_per_mwh = 0.00947  # original hard-coded value
     elif fuel_type == "Lithium-Liquid":
-        fuel_price_per_g = 152.928 #95% enrichment sigma Aldrich
-        fuel_grams_per_mwh = 4741500 #Market analysis doc
+        fuel_price_per_g = 152.928  # 95% enrichment sigma Aldrich
+        # Physics-based burn rate for lithium
+        burn_kg_per_year_per_gw = 100  # 100 kg per GW-year
+        burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
+        fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
     else:
         raise ValueError("Invalid fuel type. Choose 'Lithium' or 'Tritium'.")
+
+    total_fuel_cost = annual_energy_output_mwh * fuel_grams_per_mwh * fuel_price_per_g
 
     # Region and risk-free rate
     region = map_location_to_region(project_location)
@@ -453,6 +462,8 @@ def run_cashflow_scenario(config):
             if include_fuel_cost
             else 0
         )
+        # DEBUG PRINT
+        print(f"[DEBUG] Year {y+1} | Fuel Type: {fuel_type} | Fuel Price/g: {fuel_price_per_g} | Fuel g/MWh: {fuel_grams_per_mwh} | Annual Energy: {annual_energy} | Fuel Cost: {fuel}")
         fuel_vec.append(fuel)
         variable_om_cost = variable_om * annual_energy * esc
         fixed_om_cost = fixed_om * esc

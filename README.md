@@ -33,3 +33,6 @@ This opens a browser window with sliders and controls for the model.
 ## Development
 
 The required Python packages are listed in [`requirements.txt`](requirements.txt).  Tests can be executed with `pytest`.
+
+# For me to run have to enter 
+python -m bokeh serve fusion_cashflow_app/dashboard.py --show
