@@ -129,7 +129,7 @@ def get_unlevered_beta(scenario):
     return UNLEVERED_BETA_SCENARIOS.get(scenario, UNLEVERED_BETA_SCENARIOS["base"])
 
 
-def get_lever_beta(unlevered_beta, debt_pct, tax_rate):
+def get_levered_beta(unlevered_beta, debt_pct, tax_rate):
     """Calculate the levered beta using the standard formula."""
     # beta_L = beta_U * [1 + (1 - tax_rate) * (debt/equity)]
     equity_pct = 1.0 - debt_pct
@@ -336,7 +336,7 @@ def run_cashflow_scenario(config):
     scenario = "base"
     unlevered_beta = get_unlevered_beta(scenario)
     tax_rate = get_tax_rate(region)
-    levered_beta = get_lever_beta(unlevered_beta, input_debt_pct, tax_rate)
+    levered_beta = get_levered_beta(unlevered_beta, input_debt_pct, tax_rate)
     avg_annual_return = get_avg_annual_return(region, start="2000-01-01")
     if avg_annual_return is None:
         avg_annual_return = 0.07
