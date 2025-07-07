@@ -168,7 +168,7 @@ def make_widgets(config):
         step=0.01,
     )
     widgets["fuel_type"] = Select(
-        title="Fuel Type", value=config["fuel_type"], options=["Lithium", "Tritium"]
+        title="Fuel Type", value=config["fuel_type"], options=["Lithium-Solid", "Lithium-Liquid", "Tritium"]
     )
     widgets["input_debt_pct"] = Slider(
         title="Debt %", start=0.0, end=1.0, value=config["input_debt_pct"], step=0.01

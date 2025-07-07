@@ -250,8 +250,8 @@ def get_default_config():
         "plant_lifetime": 30,
         "fusion_method": "MFE",
         "net_electric_power_mw": 500,
-        "capacity_factor": 0.85,
-        "fuel_type": "Lithium",
+        "capacity_factor": 0.9,
+        "fuel_type": "Tritium",
         "input_debt_pct": 0.70,
         "cost_of_debt": 0.055,
         "loan_rate": 0.055,
@@ -318,12 +318,15 @@ def run_cashflow_scenario(config):
     ramp_up_rate_per_year = config["ramp_up_rate_per_year"]
     years_construction = project_energy_start_year - construction_start_year
     annual_energy_output_mwh = (net_electric_power_mw * 8760) * capacity_factor
-    if fuel_type == "Lithium":
-        fuel_price_per_g = 1
-        fuel_grams_per_mwh = 0.0128
+    if fuel_type == "Lithium-Solid":
+        fuel_price_per_g = 152.928 #95% enrichment sigma Aldrich
+        fuel_grams_per_mwh = 82500 #Market analysis doc
     elif fuel_type == "Tritium":
         fuel_price_per_g = 300
         fuel_grams_per_mwh = 0.00947
+    elif fuel_type == "Lithium-Liquid":
+        fuel_price_per_g = 152.928 #95% enrichment sigma Aldrich
+        fuel_grams_per_mwh = 4741500 #Market analysis doc
     else:
         raise ValueError("Invalid fuel type. Choose 'Lithium' or 'Tritium'.")
 
