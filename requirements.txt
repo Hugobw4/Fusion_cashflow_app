@@ -1,0 +1,7 @@
+bokeh
+holoviews
+pandas
+numpy
+numpy_financial
+pandas_datareader
+jinja2
