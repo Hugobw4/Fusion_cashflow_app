@@ -1,0 +1,48 @@
+attrs:
+  Figure:
+    background_fill_color: "#FFFFFF"
+    border_fill_color: "#FFFFFF"
+    outline_line_color: null
+    outline_line_width: 0
+    border_fill_alpha: 1.0
+    toolbar_location: "above"
+    toolbar_sticky: false
+    min_border_left: 0
+    min_border_right: 0
+    min_border_top: 0
+    min_border_bottom: 0
+    css_classes: ["fusion-figure"]
+  Grid:
+    grid_line_color: "#E5E7EB"
+    grid_line_alpha: 0.2
+  Axis:
+    axis_line_color: null
+    major_tick_line_color: null
+    minor_tick_line_color: null
+    major_label_text_font: "Inter, Helvetica, Arial, sans-serif"
+    major_label_text_color: "#0F172A"
+    major_label_text_font_size: "13px"
+    axis_label_text_font: "Inter, Helvetica, Arial, sans-serif"
+    axis_label_text_color: "#0F172A"
+    axis_label_text_font_size: "15px"
+  Title:
+    text_font: "Inter, Helvetica, Arial, sans-serif"
+    text_color: "#0F172A"
+    text_font_size: "18px"
+    align: "left"
+    offset: 8
+  Legend:
+    label_text_font: "Inter, Helvetica, Arial, sans-serif"
+    label_text_color: "#0F172A"
+    background_fill_alpha: 0.0
+    border_line_alpha: 0.0
+    glyph_height: 18
+    glyph_width: 18
+    spacing: 8
+    label_standoff: 8
+palette:
+  - "#1E3A8A"
+  - "#0891B2"
+  - "#22C55E"
+  - "#EAB308"
+  - "#EF4444"

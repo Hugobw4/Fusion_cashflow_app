@@ -1,0 +1,10 @@
+<div class="section">
+    <h2>Summary Metrics</h2>
+    <table class="summary-table">
+        <tbody>
+        {% for k, v in metrics.items() %}
+            <tr><td class="metric">{{ k }}</td><td>{{ v }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
