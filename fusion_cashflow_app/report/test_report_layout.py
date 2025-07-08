@@ -35,7 +35,7 @@ def test_add_section_appends_correct_children():
 
 def test_save_bokeh_report_runs(tmp_path):
     # Minimal smoke test: should not error and should output a file
-    metrics = {"LCOE": 42.1, "NPV": 1234567}
+    metrics = {"LCOE per MWh": 42.1, "NPV": 1234567}
     fig = Div(text="<div>plot</div>")
     tbl = Div(text="<div>table</div>")
     out_html = tmp_path / "test_report.html"

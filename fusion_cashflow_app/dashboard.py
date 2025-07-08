@@ -59,7 +59,7 @@ def render_highlight_facts(outputs):
         return val
 
     html = f"""
-    <b>LCOE:</b> <span style='color:#007aff;font-weight:600'>{fmt(lcoe, 'usd0')}</span> &nbsp; &nbsp;
+    <b>LCOE per MWh:</b> <span style='color:#007aff;font-weight:600'>{fmt(lcoe, 'usd0')}</span> &nbsp; &nbsp;
     <b>Project IRR:</b> <span style='color:#007aff;font-weight:600'>{fmt(irr, 'pct')}</span> &nbsp; &nbsp;
     <b>NPV:</b> <span style='color:#007aff;font-weight:600'>{fmt(npv, 'usd')}</span> &nbsp; &nbsp;
     <b>Payback:</b> <span style='color:#007aff;font-weight:600'>{payback if payback=='N/A' else int(payback)} years</span>

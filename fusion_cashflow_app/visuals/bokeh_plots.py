@@ -13,6 +13,7 @@ from bokeh.models import (
 from bokeh.palettes import RdYlGn
 from bokeh.layouts import row
 from bokeh.io import curdoc
+import numpy as np
 
 # Premium color palette for Sankey
 SANKEY_COLORS = {
@@ -366,6 +367,12 @@ def plot_dscr_profile_bokeh(outputs, config):
         tools="pan,wheel_zoom,box_zoom,reset,save",
         y_range=Range1d(0, 5),
     )
+    # keep the y-axis readable by capping extreme values
+    dscr_arr = np.array(source.data["dscr"], dtype=float)
+    dscr_arr = np.clip(dscr_arr, None, 5)
+    source.data["dscr"] = dscr_arr.tolist()
+    if isinstance(p.y_range, Range1d):
+        p.y_range.end = 5
     p.line(
         "year",
         "dscr",

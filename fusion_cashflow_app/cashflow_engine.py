@@ -9,8 +9,10 @@
 #
 # No plotting or file I/O in this module.
 # =============================
-import numpy as np
+
 import pandas as pd
+import numpy as np
+from scipy.special import expit
 import numpy_financial as npf
 import pandas_datareader.data as web
 
@@ -183,31 +185,46 @@ def straight_line_half_year(total_cost, dep_years, plant_lifetime):
 def build_debt_drawdown_and_amortization(
     principal, loan_rate, years, grace, plant_lifetime, years_construction
 ):
-    """Debt drawdown during construction, then amortization (interest only, then principal)."""
-    drawdown_schedule = [0] * (years_construction + plant_lifetime)
-    # Even drawdown over construction years
+    """Debt drawdown during construction (S-curve), then amortization (interest only, then principal)."""
+    total_years = years_construction + plant_lifetime
+    drawdown_schedule = [0] * total_years
+    amort_schedule = [(0,0)] * total_years
+    
+    # S-curve drawdown over construction years
+    if years_construction > 0:
+        x = np.linspace(-6, 6, years_construction)  # Adjust range for desired S-curve shape
+        s_curve = expit(x)
+        s_curve_diff = np.diff(s_curve, prepend=0)
+        # Normalize to ensure total drawdown equals principal
+        normalized_s_curve_drawdown = (s_curve_diff / s_curve_diff.sum()) * principal
+        for y in range(years_construction):
+            drawdown_schedule[y] = normalized_s_curve_drawdown[y]
+    # Amortization schedule (interest-only during construction, then principal + interest)
+    # Interest during construction is based on the cumulative S-curve drawdown
+    cumulative_drawdown = np.cumsum(drawdown_schedule)
     for y in range(years_construction):
-        drawdown_schedule[y] = principal / years_construction
-    # Amortization schedule
-    amort_schedule = []
-    remaining = principal
-    for y in range(plant_lifetime):
-        if y < grace:
-            interest = remaining * loan_rate
-            principal_payment = 0
-        elif y < grace + years:
-            principal_payment = principal / years
-            interest = remaining * loan_rate
-            remaining -= principal_payment
-        else:
-            principal_payment = 0
-            interest = 0
-        amort_schedule.append((principal_payment, interest))
+        # Interest-only during construction
+        interest_payment = cumulative_drawdown[y] * loan_rate
+        amort_schedule[y] = (0, interest_payment)  # No principal payment during construction
+
+    # Principal + interest after construction
+    remaining_principal = principal
+    for y in range(years_construction, total_years):
+        if remaining_principal <= 0:
+            break
+         # Simple amortization for now, can be improved with more complex methods
+        interest_payment = remaining_principal * loan_rate
+        principal_payment = min(remaining_principal, principal / (years - grace))  # Even principal repayment over remaining years
+        amort_schedule[y] = (principal_payment, interest_payment)
+        remaining_principal -= principal_payment
+        
     return drawdown_schedule, amort_schedule
 
 
+
+
 def lcoe_from_vectors(unlevered_cf_vec, energy_vec):
-    """LCOE: (sum of all unlevered outflows, including decom/salvage) / total MWh."""
+    """LCOE per MWh: (sum of all unlevered outflows, including decom/salvage) / total MWh generated."""
     total_cost = -min(0, sum([cf for cf in unlevered_cf_vec if cf < 0]))
     total_energy = np.sum(energy_vec)
     return total_cost / total_energy if total_energy > 0 else np.nan
@@ -407,23 +424,14 @@ def run_cashflow_scenario(config):
     full_depreciation_schedule = [0] * years_construction + depreciation_schedule
     for y in range(years_construction):
         esc = escalation_factors[y]
-        capex_outflow = (
-            (
-                total_epc_cost
-                + extra_capex
-                + project_contingency_cost
-                + process_contingency_cost
-            )
-            / years_construction
-            * esc
-        )
+        # Use S-curve to allocate capex outflow over construction years
+        capex_outflow = drawdown_schedule[y] * esc
         financing_outflow = financing_charges / years_construction * esc
         interest_during_construction = (
             sum(drawdown_schedule[:y]) * loan_rate * esc if y > 0 else 0
         )
-        net_cf = (
-            -(capex_outflow + financing_outflow + interest_during_construction)
-            + drawdown_schedule[y]
+        net_cf = -(
+            capex_outflow + financing_outflow + interest_during_construction
         )
         cashflow_type.append("Construction")
         revenue_vec.append(0)
@@ -529,11 +537,11 @@ def run_cashflow_scenario(config):
         cumulative_unlevered_cf_vec = np.cumsum(unlevered_cf_vec).tolist()
         cumulative_levered_cf_vec = np.cumsum(levered_cf_vec).tolist()
         cumulative_equity_cf_vec = np.cumsum(equity_cf_vec).tolist()
-    dscr_vec = np.divide(
-        noi_vec,
-        debt_service_vec,
-        out=np.full_like(noi_vec, np.nan, dtype=np.float64),
-        where=np.array(debt_service_vec) != 0,
+    # treat years with zero scheduled debt service as "not applicable"
+    dscr_vec = np.where(
+        np.array(debt_service_vec) > 0,
+        np.array(noi_vec) / np.array(debt_service_vec),
+        np.nan,  # NaN suppresses plotting in Bokeh
     ).tolist()
     debt_drawdown_vec = drawdown_schedule
     all_vectors = [
