@@ -290,6 +290,30 @@ def lcoe_from_cost_vectors(capex_vec, opex_vec, fuel_vec, decom_vec, energy_vec,
     return pv_costs / pv_energy if pv_energy > 0 else np.nan
 
 
+def lcoe_from_cost_vectors_with_tax(capex_vec, opex_vec, fuel_vec, decom_vec, 
+                                   energy_vec, discount_rate, tax_vec):
+    """
+    Enhanced LCOE with tax effects:
+    PV(all costs - tax savings) ÷ PV(discounted energy)
+    
+    Tax savings come from depreciation shields and other deductible expenses.
+    This gives a more accurate after-tax cost of energy.
+    """
+    # Calculate net costs after tax effects
+    gross_costs = (np.array(capex_vec) + 
+                   np.array(opex_vec) + 
+                   np.array(fuel_vec) + 
+                   np.array(decom_vec))
+    
+    # Net costs = gross costs - tax savings from depreciation
+    net_cost_vec = gross_costs - np.array(tax_vec)
+    
+    pv_costs = npf.npv(discount_rate, net_cost_vec)
+    pv_energy = npf.npv(discount_rate, energy_vec)
+    
+    return pv_costs / pv_energy if pv_energy > 0 else np.nan
+
+
 def payback_period(cumulative_cf):
     """Payback period: first year cumulative CF >= 0."""
     for i, cf in enumerate(cumulative_cf):
@@ -801,7 +825,8 @@ def run_cashflow_scenario(config):
     npv = npf.npv(discount_rate, unlevered_cf_vec)
     irr = npf.irr(unlevered_cf_vec)
     payback = payback_period(cumulative_unlevered_cf_vec)
-    lcoe_val = lcoe_from_cost_vectors(capex_vec, opex_vec, fuel_cost_vec, decom_vec, energy_vec, discount_rate)
+    # Use tax-adjusted LCOE for more accurate calculation
+    lcoe_val = lcoe_from_cost_vectors_with_tax(capex_vec, opex_vec, fuel_cost_vec, decom_vec, energy_vec, discount_rate, tax_vec)
     equity_npv = npf.npv(discount_rate, equity_cf_vec)
     equity_irr = npf.irr(equity_cf_vec)
     equity_payback = payback_period(cumulative_equity_cf_vec)
