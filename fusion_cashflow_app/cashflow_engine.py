@@ -161,6 +161,7 @@ HARDCODED_AVG_RETURNS = {
     'Southeast Asia': 0.029292706115026546,
     'Sub-Saharan Africa': 0.09940116692389456,
 }
+#this was fetched on 09/07/2025
 
 def stooq_ping():
     # Try a very lightweight request to Stooq to check if API is up
@@ -320,7 +321,7 @@ def get_default_config():
         "years_construction": years_construction,  # Always numeric, so included in sensitivity
         "project_energy_start_year": project_energy_start_year,
         "plant_lifetime": 30,
-        "fusion_method": "MFE",
+        "power_method": "MFE",
         "net_electric_power_mw": 500,  # Core driver
         "capacity_factor": 0.9,
         "fuel_type": "Lithium-Solid",
@@ -366,7 +367,7 @@ def run_cashflow_scenario(config):
         years_construction = int(round(project_energy_start_year - construction_start_year))
     plant_lifetime = config["plant_lifetime"]
     plant_lifetime = int(round(plant_lifetime))
-    fusion_method = config["fusion_method"]
+    power_method = config["power_method"]
     net_electric_power_mw = config["net_electric_power_mw"]
     capacity_factor = config["capacity_factor"]
     fuel_type = config["fuel_type"]
@@ -415,6 +416,9 @@ def run_cashflow_scenario(config):
         burn_kg_per_year_per_gw = 100
         burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
         fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
+    elif fuel_type == "Fission Benchmark Enriched Uranium":
+        fuel_price_per_g = 1.663
+        fuel_grams_per_mwh = 2.78 #https://world-nuclear.org/information-library/economic-aspects/economics-of-nuclear-power
     else:
         raise ValueError("Invalid fuel type. Choose 'Lithium' or 'Tritium'.")
     total_fuel_cost = annual_energy_output_mwh * fuel_grams_per_mwh * fuel_price_per_g
