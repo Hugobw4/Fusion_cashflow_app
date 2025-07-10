@@ -352,6 +352,61 @@ def get_default_config():
     }
 
 
+def get_mfe_config():
+    """Return default configuration for MFE (Magnetic Fusion Energy) - ITER-based."""
+    return get_default_config()  # Uses ITER as the MFE baseline
+
+
+def get_pwr_config():
+    """Return default configuration for PWR (Pressurized Water Reactor) - Vogtle-based."""
+    return {
+        "project_name": "Plant Vogtle Units 3 & 4",
+        "project_location": "Waynesboro, Georgia, USA",
+        "construction_start_year": 2013,
+        "years_construction": 11,
+        "project_energy_start_year": 2024,
+        "plant_lifetime": 60,
+        "power_method": "PWR",
+        "net_electric_power_mw": 2231,
+        "capacity_factor": 0.90,
+        "fuel_type": "Fission Benchmark Enriched Uranium",
+        "input_debt_pct": 0.70,
+        "cost_of_debt": 0.05,
+        "loan_rate": 0.05,
+        "financing_fee": 0.01,
+        "repayment_term_years": 30,
+        "grace_period_years": 3,
+        "total_epc_cost": 35000000000,
+        "extra_capex_pct": 0.0,
+        "project_contingency_pct": 0.0,
+        "process_contingency_pct": 0.0,
+        "fixed_om_per_mw": 158610,
+        "variable_om": 2.54,
+        "electricity_price": 70,
+        "dep_years": 20,
+        "salvage_value": 0,
+        "decommissioning_cost": 1000000000,
+        "use_real_dollars": False,
+        "price_escalation_active": True,
+        "escalation_rate": 0.02,
+        "include_fuel_cost": True,
+        "apply_tax_model": True,
+        "ramp_up": True,
+        "ramp_up_years": 3,
+        "ramp_up_rate_per_year": 0.33,
+    }
+
+
+def get_default_config_by_power_method(power_method):
+    """Return appropriate default configuration based on power method."""
+    if power_method == "MFE" or power_method == "IFE":
+        return get_mfe_config()
+    elif power_method == "PWR":
+        return get_pwr_config()
+    else:
+        return get_default_config()  # Fallback to generic default
+
+
 def run_cashflow_scenario(config):
     import time
     # print('[PROFILE] run_cashflow_scenario: start')
@@ -368,9 +423,36 @@ def run_cashflow_scenario(config):
     plant_lifetime = config["plant_lifetime"]
     plant_lifetime = int(round(plant_lifetime))
     power_method = config["power_method"]
+    
+    # --- Power Method Specific Adjustments ---
+    # Only apply fuel type logic based on power method
+    if power_method == "MFE":  # Magnetic Fusion Energy (Tokamak)
+        # MFE should use fusion-compatible fuels
+        if config["fuel_type"] not in ["Lithium-Solid", "Lithium-Liquid", "Tritium"]:
+            fuel_type = "Lithium-Solid"  # Default for MFE
+        else:
+            fuel_type = config["fuel_type"]
+        
+    elif power_method == "IFE":  # Inertial Fusion Energy (Laser-driven)
+        # IFE should use fusion-compatible fuels
+        if config["fuel_type"] not in ["Lithium-Solid", "Lithium-Liquid", "Tritium"]:
+            fuel_type = "Tritium"  # Default for IFE
+        else:
+            fuel_type = config["fuel_type"]
+        
+    elif power_method == "PWR":  # Pressurized Water Reactor (Fission)
+        # PWR must use enriched uranium fuel
+        fuel_type = "Fission Benchmark Enriched Uranium"
+            
+    else:
+        # Default case - use config fuel type
+        fuel_type = config["fuel_type"]
+        if fuel_type not in ["Lithium-Solid", "Lithium-Liquid", "Tritium", "Fission Benchmark Enriched Uranium"]:
+            fuel_type = "Lithium-Solid"
+    
+    # Apply power method adjustments to key variables
     net_electric_power_mw = config["net_electric_power_mw"]
-    capacity_factor = config["capacity_factor"]
-    fuel_type = config["fuel_type"]
+    capacity_factor = config["capacity_factor"]  # Use config value directly
     input_debt_pct = config["input_debt_pct"]
     input_equity_pct = 1.0 - input_debt_pct
     cost_of_debt = config["cost_of_debt"]
@@ -380,12 +462,12 @@ def run_cashflow_scenario(config):
     repayment_term_years = int(round(repayment_term_years))
     grace_period_years = config["grace_period_years"]
     grace_period_years = int(round(grace_period_years))
-    total_epc_cost = config["total_epc_cost"]
+    total_epc_cost = config["total_epc_cost"]  # Use config value directly
     extra_capex = total_epc_cost * config["extra_capex_pct"]
     project_contingency_cost = total_epc_cost * config["project_contingency_pct"]
     process_contingency_cost = total_epc_cost * config["process_contingency_pct"]
-    fixed_om = config["fixed_om_per_mw"] * net_electric_power_mw
-    variable_om = config["variable_om"]
+    fixed_om = config["fixed_om_per_mw"] * net_electric_power_mw  # Use config values directly
+    variable_om = config["variable_om"]  # Use config value directly
     electricity_price = config["electricity_price"]
     dep_years = config["dep_years"]
     dep_years = int(round(dep_years))
