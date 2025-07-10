@@ -273,13 +273,45 @@ def build_debt_drawdown_and_amortization(
     return drawdown_schedule, amort_schedule
 
 
+def lcoe_from_cost_vectors(capex_vec, opex_vec, fuel_vec, decom_vec, energy_vec, discount_rate):
+    """
+    Lazard LCOE:
+    PV(all discounted cost streams) ÷ PV(discounted energy),
+    both discounted at the project WACC.
+    """
+    cost_vec = (np.array(capex_vec) +
+                np.array(opex_vec) +
+                np.array(fuel_vec) +
+                np.array(decom_vec))
+
+    pv_costs  = npf.npv(discount_rate, cost_vec)
+    pv_energy = npf.npv(discount_rate, energy_vec)
+
+    return pv_costs / pv_energy if pv_energy > 0 else np.nan
 
 
-def lcoe_from_vectors(unlevered_cf_vec, energy_vec):
-    """LCOE per MWh: (sum of all unlevered outflows, including decom/salvage) / total MWh generated."""
-    total_cost = -min(0, sum([cf for cf in unlevered_cf_vec if cf < 0]))
-    total_energy = np.sum(energy_vec)
-    return total_cost / total_energy if total_energy > 0 else np.nan
+def lcoe_from_cost_vectors_with_tax(capex_vec, opex_vec, fuel_vec, decom_vec, 
+                                   energy_vec, discount_rate, tax_vec):
+    """
+    Enhanced LCOE with tax effects:
+    PV(all costs - tax savings) ÷ PV(discounted energy)
+    
+    Tax savings come from depreciation shields and other deductible expenses.
+    This gives a more accurate after-tax cost of energy.
+    """
+    # Calculate net costs after tax effects
+    gross_costs = (np.array(capex_vec) + 
+                   np.array(opex_vec) + 
+                   np.array(fuel_vec) + 
+                   np.array(decom_vec))
+    
+    # Net costs = gross costs - tax savings from depreciation
+    net_cost_vec = gross_costs - np.array(tax_vec)
+    
+    pv_costs = npf.npv(discount_rate, net_cost_vec)
+    pv_energy = npf.npv(discount_rate, energy_vec)
+    
+    return pv_costs / pv_energy if pv_energy > 0 else np.nan
 
 
 def payback_period(cumulative_cf):
@@ -552,6 +584,11 @@ def run_cashflow_scenario(config):
     cumulative_unlevered_cf_vec = []
     cumulative_levered_cf_vec = []
     dscr_vec = []
+    # --- Cost vectors for LCOE calculation ---
+    capex_vec = []
+    opex_vec = []
+    fuel_cost_vec = []
+    decom_vec = []
     escalation_factors = [1.0]
     for y in range(1, total_years):
         if price_escalation_active:
@@ -601,6 +638,11 @@ def run_cashflow_scenario(config):
             equity_cf_vec.append(-toc * input_equity_pct)
         else:
             equity_cf_vec.append(0)
+        # --- Cost vectors for LCOE calculation ---
+        capex_vec.append(capex_outflow + financing_outflow + interest_during_construction)
+        opex_vec.append(0)
+        fuel_cost_vec.append(0)
+        decom_vec.append(0)
     # t4 = time.time(); print(f'[PROFILE] after construction loop: {t4-t0:.2f}s')
     # --- Operation loop ---
     for y in range(plant_lifetime):
@@ -664,6 +706,15 @@ def run_cashflow_scenario(config):
         unlevered_cf_vec.append(unlevered_cf)
         levered_cf_vec.append(levered_cf)
         equity_cf_vec.append(levered_cf)
+        # --- Cost vectors for LCOE calculation ---
+        capex_vec.append(0)  # No capex during operation
+        opex_vec.append(om)  # O&M costs
+        fuel_cost_vec.append(fuel)  # Fuel costs
+        # Decommissioning costs in the final year
+        if (construction_start_year + op_year) == decommissioning_year:
+            decom_vec.append(decommissioning_cost)
+        else:
+            decom_vec.append(0)
     # t5 = time.time(); print(f'[PROFILE] after operation loop: {t5-t0:.2f}s')
     if use_real_dollars:
         for y in range(len(unlevered_cf_vec)):
@@ -681,6 +732,11 @@ def run_cashflow_scenario(config):
             interest_paid_vec[y] /= deflator
             energy_vec[y] /= deflator
             noi_vec[y] /= deflator
+            # Also deflate cost vectors for LCOE calculation
+            capex_vec[y] /= deflator
+            opex_vec[y] /= deflator
+            fuel_cost_vec[y] /= deflator
+            decom_vec[y] /= deflator
         cumulative_unlevered_cf_vec = np.cumsum(unlevered_cf_vec).tolist()
         cumulative_levered_cf_vec = np.cumsum(levered_cf_vec).tolist()
         cumulative_equity_cf_vec = np.cumsum(equity_cf_vec).tolist()
@@ -769,7 +825,8 @@ def run_cashflow_scenario(config):
     npv = npf.npv(discount_rate, unlevered_cf_vec)
     irr = npf.irr(unlevered_cf_vec)
     payback = payback_period(cumulative_unlevered_cf_vec)
-    lcoe_val = lcoe_from_vectors(unlevered_cf_vec, energy_vec)
+    # Use tax-adjusted LCOE for more accurate calculation
+    lcoe_val = lcoe_from_cost_vectors_with_tax(capex_vec, opex_vec, fuel_cost_vec, decom_vec, energy_vec, discount_rate, tax_vec)
     equity_npv = npf.npv(discount_rate, equity_cf_vec)
     equity_irr = npf.irr(equity_cf_vec)
     equity_payback = payback_period(cumulative_equity_cf_vec)
