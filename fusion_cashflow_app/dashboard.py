@@ -62,7 +62,7 @@ def render_highlight_facts(outputs):
     <b>LCOE per MWh:</b> <span style='color:#007aff;font-weight:600'>{fmt(lcoe, 'usd0')}</span> &nbsp; &nbsp;
     <b>Project IRR:</b> <span style='color:#007aff;font-weight:600'>{fmt(irr, 'pct')}</span> &nbsp; &nbsp;
     <b>NPV:</b> <span style='color:#007aff;font-weight:600'>{fmt(npv, 'usd')}</span> &nbsp; &nbsp;
-    <b>Payback:</b> <span style='color:#007aff;font-weight:600'>{payback if payback=='N/A' else int(payback)} years</span>
+    <b>Payback:</b> <span style='color:#007aff;font-weight:600'>{'∞' if payback is None else payback if payback=='N/A' else int(payback)} years</span>
     """
     return html
 
@@ -77,6 +77,7 @@ from fusion_cashflow_app.cashflow_engine import (
     get_default_config,
     run_cashflow_scenario,
     run_sensitivity_analysis,
+    get_avg_annual_return,
 )
 from fusion_cashflow_app.visuals.bokeh_plots import (
     plot_annual_cashflow_bokeh,
@@ -142,6 +143,12 @@ def make_widgets(config):
         end=2100,
         value=config["project_energy_start_year"],
         step=1,
+    )
+    # Add a read-only Div to show years_construction
+    years_construction_val = config["project_energy_start_year"] - config["construction_start_year"]
+    widgets["years_construction_display"] = Div(
+        text=f"<div style='margin-bottom:10px; color:#007aff; font-size:16px;'><b>Construction Duration (years):</b> {years_construction_val}</div>",
+        width=300,
     )
     widgets["plant_lifetime"] = Slider(
         title="Plant Lifetime (years)",
@@ -322,11 +329,8 @@ DEBOUNCE_DELAY = 0.35  # seconds
 
 
 def update_dashboard():
-    print("[DEBUG] update_dashboard called")
     config = get_config_from_widgets(widgets)
     outputs = run_cashflow_scenario(config)
-    print("[DEBUG] outputs keys:", list(outputs.keys()))
-    global annual_fig, cum_fig, dscr_fig, funding_fig
     highlight_div.text = render_highlight_facts(outputs)
     annual_fig = plot_annual_cashflow_bokeh(outputs, config)
     cum_fig = plot_cumulative_cashflow_bokeh(outputs, config)
@@ -342,14 +346,12 @@ def update_dashboard():
         "Tax": outputs["tax_vec"],
         "NOI": outputs["noi_vec"],
     })
-    print("[DEBUG] annual_df head:\n", annual_df.head())
     annual_source.data = dict(ColumnDataSource(annual_df).data)
     cum_df = pd.DataFrame({
         "Year": outputs["year_labels_int"],
         "Cumulative Unlevered CF": outputs["cumulative_unlevered_cf_vec"],
         "Cumulative Levered CF": outputs["cumulative_levered_cf_vec"],
     })
-    print("[DEBUG] cum_df head:\n", cum_df.head())
     cum_source.data = dict(ColumnDataSource(cum_df).data)
     dscr_df = pd.DataFrame({
         "Year": outputs["year_labels_int"],
@@ -357,7 +359,6 @@ def update_dashboard():
         "NOI": outputs["noi_vec"],
         "Debt Service": [a + b for a, b in zip(outputs["principal_paid_vec"], outputs["interest_paid_vec"])]
     })
-    print("[DEBUG] dscr_df head:\n", dscr_df.head())
     dscr_source.data = dict(ColumnDataSource(dscr_df).data)
     # Replace plots in layout (main tab only)
     main_col.children = [
@@ -370,8 +371,6 @@ def update_dashboard():
         dscr_table,
         funding_fig,
     ]
-    print("[DEBUG] main_col children set:", [type(child) for child in main_col.children])
-
 
 
 debounce_callback_id = None
@@ -405,9 +404,28 @@ def download_csv_callback(source, filename):
 config = get_default_config()
 widgets = make_widgets(config)
 
-# Data sources for tables
+# --- Make years_construction_display reactive ---
+def update_years_construction_display(attr, old, new):
+    years = widgets["project_energy_start_year"].value - widgets["construction_start_year"].value
+    widgets["years_construction_display"].text = (
+        f"<div style='margin-bottom:10px; color:#007aff; font-size:16px;'><b>Construction Duration (years):</b> {years}</div>"
+    )
+widgets["construction_start_year"].on_change("value", update_years_construction_display)
+widgets["project_energy_start_year"].on_change("value", update_years_construction_display)
+
 outputs = run_cashflow_scenario(config)
-sensitivity_df = run_sensitivity_analysis(config)
+
+# Do NOT run sensitivity analysis at startup
+# print('[DEBUG] Calling run_sensitivity_analysis(config)')
+# sensitivity_df = run_sensitivity_analysis(config)
+# print('[DEBUG] Finished run_sensitivity_analysis(config)')
+
+# Placeholder for sensitivity tab at startup
+from bokeh.plotting import figure
+placeholder_fig = figure(height=400, width=700, title="Click 'Run Sensitivity Analysis' to compute results.")
+placeholder_fig.text(x=[0.5], y=[0.5], text=["No sensitivity data yet."], text_align="center", text_baseline="middle", text_font_size="16pt")
+
+
 annual_df = pd.DataFrame(
     {
         "Year": outputs["year_labels_int"],
@@ -421,6 +439,7 @@ annual_df = pd.DataFrame(
     }
 )
 annual_source = ColumnDataSource(annual_df)
+
 cum_df = pd.DataFrame(
     {
         "Year": outputs["year_labels_int"],
@@ -429,6 +448,7 @@ cum_df = pd.DataFrame(
     }
 )
 cum_source = ColumnDataSource(cum_df)
+
 dscr_df = pd.DataFrame(
     {
         "Year": outputs["year_labels_int"],
@@ -441,6 +461,7 @@ dscr_df = pd.DataFrame(
     }
 )
 dscr_source = ColumnDataSource(dscr_df)
+
 funding_df = pd.DataFrame(
     {
         "Label": [
@@ -465,8 +486,9 @@ funding_df = pd.DataFrame(
     }
 )
 funding_source = ColumnDataSource(funding_df)
-sens_source = ColumnDataSource(sensitivity_df)
-
+# sens_source = ColumnDataSource(sensitivity_df)
+import pandas as pd
+sens_source = ColumnDataSource(pd.DataFrame())
 
 
 # --- Plots ---
@@ -542,7 +564,6 @@ sidebar = column(
     sizing_mode="stretch_height",
 )
 
-
 # --- Main Results Tab ---
 main_col = column(
     highlight_div,
@@ -565,7 +586,19 @@ from bokeh.models import TabPanel
 main_tab = TabPanel(child=main_col, title="Main Results")
 
 # --- Sensitivity Analysis Tab ---
-sens_fig = plot_sensitivity_heatmap(outputs, config, sensitivity_df)
+from bokeh.models import Div
+grey_container_style = {
+    "background": "#f5f6fa",
+    "border-radius": "12px",
+    "padding": "24px 16px 24px 16px",
+    "margin": "16px 0 16px 0",
+    "box-shadow": "0 2px 8px rgba(0,0,0,0.04)",
+    "overflow-x": "auto",
+    "width": "100%"
+}
+# Create a container for the plot
+sens_fig = placeholder_fig
+sens_plot_container = column(sens_fig, sizing_mode="stretch_width", styles=grey_container_style)
 sens_col = column(
     Div(
         text="<h3>Sensitivity Analysis</h3><p>Click the button to recompute sensitivity analysis with current inputs.</p>"
@@ -576,7 +609,7 @@ sens_col = column(
         width=220,
         name="run_sens_btn",
     ),
-    sens_fig,
+    sens_plot_container,
     sizing_mode="stretch_both",
 )
 sens_tab = TabPanel(child=sens_col, title="Sensitivity Analysis")
@@ -585,7 +618,6 @@ sens_tab = TabPanel(child=sens_col, title="Sensitivity Analysis")
 # --- Proper widget callback binding to avoid closure issues and use debouncing ---
 def make_callback(widget):
     def callback(attr, old, new):
-        print(f"Widget {widget} changed: {old} -> {new}")
         debounced_update()
 
     return callback
@@ -605,8 +637,7 @@ def run_sensitivity_callback():
     outputs = run_cashflow_scenario(config)
     sensitivity_df = run_sensitivity_analysis(config)
     sens_fig_new = plot_sensitivity_heatmap(outputs, config, sensitivity_df)
-    # Replace the sensitivity plot in the column (keep button and header)
-    sens_col.children[2] = sens_fig_new
+    sens_plot_container.children[0] = sens_fig_new
 
 
 # Find the button in sens_col and attach callback
@@ -621,6 +652,7 @@ for child in sens_col.children:
 
 # Set initial highlight facts
 highlight_div.text = render_highlight_facts(outputs)
+get_avg_annual_return("Europe")
 tabs = Tabs(tabs=[main_tab, sens_tab], sizing_mode="stretch_both")
 
 
@@ -637,7 +669,7 @@ outer_container_style = {
     "justify-content": "center",
     "align-items": "flex-start",
     "width": "100%",
-    "max-width": "1800px",
+    # Remove max-width to allow full width
 }
 main_col_style = {
     "background": "#fff",
@@ -662,17 +694,31 @@ sidebar_style = {
 
 # --- Wrap sidebar in styled container, use tabs directly ---
 styled_sidebar = column(sidebar, width=360, sizing_mode="stretch_height", styles=sidebar_style)
+# For main results, make sure the main_col stretches full width
+main_col.sizing_mode = "stretch_width"
+main_col.width = None
 styled_tabs = tabs  # Do not wrap Tabs in a column
 
 # --- Center everything in a wide, light-grey container ---
-outer = row(
-    Spacer(width=0, sizing_mode="stretch_width"),
-    styled_sidebar,
-    styled_tabs,
-    Spacer(width=0, sizing_mode="stretch_width"),
-    sizing_mode="stretch_both",
-    styles=outer_container_style,
-)
+try:
+    from bokeh.layouts import grid
+    # Use a responsive grid: sidebar in first column, main content in second column
+    outer_grid = grid([
+        [styled_sidebar, styled_tabs]
+    ], sizing_mode="stretch_both")
+    from bokeh.models import Div
+    outer = column(
+        Div(styles=outer_container_style),
+        outer_grid,
+        sizing_mode="stretch_both"
+    )
+
+    curdoc().add_root(outer)
+    curdoc().title = "Fusion Cashflow Dashboard"
+    update_dashboard()
+except Exception as e:
+    import traceback
+    traceback.print_exc()
 
 
 # --- Make all plots/tables fill width ---
@@ -684,8 +730,3 @@ for tbl in [annual_table, cum_table, dscr_table]:
     if hasattr(tbl, 'sizing_mode'):
         tbl.sizing_mode = "stretch_width"
         tbl.width = None
-
-# --- Add layout to document first, then update visuals/tables ---
-curdoc().add_root(outer)
-curdoc().title = "Fusion Cashflow Dashboard"
-update_dashboard()

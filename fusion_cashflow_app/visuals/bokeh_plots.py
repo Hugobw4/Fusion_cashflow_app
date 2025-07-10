@@ -810,6 +810,7 @@ def plot_sensitivity_heatmap(outputs, config, sensitivity_df):
     # Now assign heatmap_df after delta columns are present
     heatmap_df = sensitivity_df.copy()
     # Categorical axes
+    # Use full driver names for y-axis
     drivers = list(heatmap_df["Driver"].unique())
 
     # Sort bands numerically so 0% is between -2% and +2%
@@ -818,24 +819,26 @@ def plot_sensitivity_heatmap(outputs, config, sensitivity_df):
             return int(b.replace("%", ""))
         except:
             return 0
-
+    # Use full text for x-axis (e.g., '-14%', ..., '+14%')
     bands = sorted(heatmap_df["Band"].unique(), key=band_sort_key)
     # Prepare data for Bokeh
     source = ColumnDataSource(heatmap_df)
-    # Custom diverging palette: blue to white to red
-    # RdBu[11] is blue-white-red, with white at the center
+    # Custom diverging palette: green to white to red, with white at the center
+    from bokeh.palettes import RdYlGn
     palette = RdYlGn[11]
+    # Optionally, to ensure mutability and avoid linter errors, do not modify the palette if it causes issues.
     # Symmetric color mapping: 0 always maps to white
     max_abs = max(abs(heatmap_df["ΔNPV"].min()), abs(heatmap_df["ΔNPV"].max()))
     mapper = linear_cmap(
         field_name="ΔNPV", palette=palette, low=-max_abs, high=+max_abs
     )
+    from bokeh.models import FactorRange
     p = figure(
         title="Sensitivity Analysis: ΔNPV by Driver and Scenario",
         x_range=FactorRange(*bands),
         y_range=FactorRange(*drivers[::-1]),
         x_axis_location="above",
-        width=800,
+        width=1000,
         height=350,
         tools="hover,save",
         toolbar_location="right",
@@ -855,24 +858,42 @@ def plot_sensitivity_heatmap(outputs, config, sensitivity_df):
         line_color=None,
         fill_color=mapper,
     )
+    # Add NPV and IRR values as labels in each cell
+    heatmap_df["label"] = heatmap_df.apply(
+        lambda row: f"${row['NPV']/1e9:.1f}B, {row['IRR']*100:.1f}%", axis=1
+    )
+    from bokeh.models import LabelSet
+    label_source = ColumnDataSource(heatmap_df)
+    labels = LabelSet(
+        x="Band",
+        y="Driver",
+        text="label",
+        source=label_source,
+        text_align="center",
+        text_baseline="middle",
+        text_font_size="7pt"
+    )
+    p.add_layout(labels)
     # Colorbar
+    from bokeh.models import NumeralTickFormatter
     color_bar = ColorBar(
         color_mapper=mapper["transform"],
         major_label_text_font_size="10pt",
         ticker=BasicTicker(desired_num_ticks=7),
-        formatter=PrintfTickFormatter(format="$%d"),
+        formatter=NumeralTickFormatter(format="$0.0a"),
         label_standoff=8,
         border_line_color=None,
         location=(0, 0),
     )
     p.add_layout(color_bar, "right")
     # Axis polish
-    p.xaxis.axis_label = "Scenario Band"
+    p.xaxis.axis_label = "Scenario Band (%)"
     p.yaxis.axis_label = "Driver"
     p.xaxis.major_label_orientation = 0.8
     p.grid.grid_line_color = None
     p.axis.axis_line_color = None
     p.axis.major_tick_line_color = None
     p.axis.major_label_text_font_size = "12pt"
+    p.yaxis.major_label_text_font_size = "9pt"
     p.outline_line_color = None
     return p

@@ -15,6 +15,8 @@ import numpy as np
 from scipy.special import expit
 import numpy_financial as npf
 import pandas_datareader.data as web
+import datetime
+import requests
 
 # =============================
 # Dictionaries & Mappings (Do Not Edit)
@@ -141,20 +143,65 @@ def get_levered_beta(unlevered_beta, debt_pct, tax_rate):
     return unlevered_beta * (1 + (1 - tax_rate) * debt_to_equity)
 
 
+_stooq_cache = {}
+_stooq_cache_date = None
+
+
+
+HARDCODED_AVG_RETURNS = {
+    'North America': 0.05862909229093205,
+    'Europe': 0.051329545739963844,
+    'China': 0.0363600914129143,
+    'India': 0.11362815309866603,
+    'Oceania': 0.04156668100625649,
+    'Southern Africa': 0.09940116692389456,
+    'MENA': 0.0661967927282765,
+    'Latin America': 0.0861213404432597,
+    'Russia & CIS': 0.07417993159300096,
+    'Southeast Asia': 0.029292706115026546,
+    'Sub-Saharan Africa': 0.09940116692389456,
+}
+
+def stooq_ping():
+    # Try a very lightweight request to Stooq to check if API is up
+    try:
+        resp = requests.get('https://stooq.com/q/d/l/?s=spx.us&i=d', timeout=2)
+        if resp.status_code == 200:
+            return True
+    except Exception:
+        pass
+    return False
+
 def get_avg_annual_return(region, start="2000-01-01", end=None):
-    """Retrieve the average annualized total return of the index proxy for 'region'."""
-    # using Stooq data via pandas_datareader.
-    # Data source: Stooq, see REGION_INDEX_TICKERS for mapping
+    global _stooq_cache, _stooq_cache_date
+    today = datetime.date.today()
+    if _stooq_cache_date != today:
+        _stooq_cache = {}
+        _stooq_cache_date = today
+
+    if region in _stooq_cache:
+        return _stooq_cache[region]
     ticker = REGION_INDEX_TICKERS.get(region)
     if not ticker:
-        return None
+        return HARDCODED_AVG_RETURNS.get(region, 0.07)  # fallback
+
+    # Ping Stooq once per process per day
+    if not hasattr(get_avg_annual_return, '_stooq_available') or get_avg_annual_return._stooq_available_date != today:
+        get_avg_annual_return._stooq_available = stooq_ping()
+        get_avg_annual_return._stooq_available_date = today
+    if not get_avg_annual_return._stooq_available:
+        return HARDCODED_AVG_RETURNS.get(region, 0.07)
+
     stooq_symbol = f"^{ticker}"
     if end is None:
         end = pd.Timestamp.today().strftime("%Y-%m-%d")
     try:
         df = web.DataReader(stooq_symbol, "stooq", start, end)
         if df.empty:
-            return None
+            # Final fallback: hardcoded value
+            if region in HARDCODED_AVG_RETURNS:
+                return HARDCODED_AVG_RETURNS[region]
+            return 0.07
         df = df.sort_index()
         first_price = df["Close"].iloc[0]
         last_price = df["Close"].iloc[-1]
@@ -162,9 +209,13 @@ def get_avg_annual_return(region, start="2000-01-01", end=None):
         days = (df.index[-1] - df.index[0]).days
         years = days / 365.25
         ann_return = (1 + cumulative_return) ** (1 / years) - 1
+        _stooq_cache[region] = ann_return
         return ann_return
     except Exception:
-        return None
+        # Final fallback: hardcoded value
+        if region in HARDCODED_AVG_RETURNS:
+            return HARDCODED_AVG_RETURNS[region]
+        return 0.07
 
 
 def get_tax_rate(region):
@@ -259,37 +310,41 @@ def equity_multiple(cashflows, equity_investment):
 # =============================
 def get_default_config():
     """Return a dict of all model configuration parameters."""
+    construction_start_year = 2007
+    project_energy_start_year = 2034
+    years_construction = project_energy_start_year - construction_start_year  # Default: difference of years
     return {
         "project_name": "ITER",
         "project_location": "South of France",
-        "construction_start_year": 2007,
-        "project_energy_start_year": 2034,
+        "construction_start_year": construction_start_year,
+        "years_construction": years_construction,  # Always numeric, so included in sensitivity
+        "project_energy_start_year": project_energy_start_year,
         "plant_lifetime": 30,
         "fusion_method": "MFE",
-        "net_electric_power_mw": 500,
+        "net_electric_power_mw": 500,  # Core driver
         "capacity_factor": 0.9,
-        "fuel_type": "Tritium",
+        "fuel_type": "Lithium-Solid",
         "input_debt_pct": 0.70,
         "cost_of_debt": 0.055,
         "loan_rate": 0.055,
         "financing_fee": 0.015,
         "repayment_term_years": 20,
         "grace_period_years": 3,
-        "total_epc_cost": 13000000000,  # 13 billion
+        "total_epc_cost": 13000000000,  # Core driver
         "extra_capex_pct": 0.05,
         "project_contingency_pct": 0.15,
         "process_contingency_pct": 0.20,
         "fixed_om_per_mw": 60000,
         "variable_om": 2.7,
-        "electricity_price": 100,
+        "electricity_price": 100,  # Core driver
         "dep_years": 20,
-        "salvage_value": 1000000,
+        "salvage_value": 10000000,
         "decommissioning_cost": 843000000,
         "use_real_dollars": False,
-        "price_escalation_active": False,
+        "price_escalation_active": True,
         "escalation_rate": 0.02,
         "include_fuel_cost": True,
-        "apply_tax_model": False,
+        "apply_tax_model": True,
         "ramp_up": True,
         "ramp_up_years": 3,
         "ramp_up_rate_per_year": 0.33,
@@ -297,13 +352,20 @@ def get_default_config():
 
 
 def run_cashflow_scenario(config):
-    """Run the full cash flow scenario and return all relevant vectors and metrics as a dict."""
-    # Unpack config
-    project_name = config["project_name"]
-    project_location = config["project_location"]
+    import time
+    # print('[PROFILE] run_cashflow_scenario: start')
+    t0 = time.time()
+    # --- Input/config setup ---
     construction_start_year = config["construction_start_year"]
-    project_energy_start_year = config["project_energy_start_year"]
+    years_construction = config.get("years_construction")
+    if years_construction is not None:
+        years_construction = int(round(years_construction))
+        project_energy_start_year = construction_start_year + years_construction
+    else:
+        project_energy_start_year = config["project_energy_start_year"]
+        years_construction = int(round(project_energy_start_year - construction_start_year))
     plant_lifetime = config["plant_lifetime"]
+    plant_lifetime = int(round(plant_lifetime))
     fusion_method = config["fusion_method"]
     net_electric_power_mw = config["net_electric_power_mw"]
     capacity_factor = config["capacity_factor"]
@@ -314,7 +376,9 @@ def run_cashflow_scenario(config):
     loan_rate = config["loan_rate"]
     financing_fee = config["financing_fee"]
     repayment_term_years = config["repayment_term_years"]
+    repayment_term_years = int(round(repayment_term_years))
     grace_period_years = config["grace_period_years"]
+    grace_period_years = int(round(grace_period_years))
     total_epc_cost = config["total_epc_cost"]
     extra_capex = total_epc_cost * config["extra_capex_pct"]
     project_contingency_cost = total_epc_cost * config["project_contingency_pct"]
@@ -323,6 +387,7 @@ def run_cashflow_scenario(config):
     variable_om = config["variable_om"]
     electricity_price = config["electricity_price"]
     dep_years = config["dep_years"]
+    dep_years = int(round(dep_years))
     salvage_value = config["salvage_value"]
     decommissioning_cost = config["decommissioning_cost"]
     use_real_dollars = config["use_real_dollars"]
@@ -332,32 +397,28 @@ def run_cashflow_scenario(config):
     apply_tax_model = config["apply_tax_model"]
     ramp_up = config["ramp_up"]
     ramp_up_years = config["ramp_up_years"]
+    ramp_up_years = int(round(ramp_up_years))
     ramp_up_rate_per_year = config["ramp_up_rate_per_year"]
-    years_construction = project_energy_start_year - construction_start_year
+    # t1 = time.time(); print(f'[PROFILE] after input/config setup: {t1-t0:.2f}s')
+    # --- Region/risk-free/tax calculations ---
     annual_energy_output_mwh = (net_electric_power_mw * 8760) * capacity_factor
-
     if fuel_type == "Lithium-Solid":
-        fuel_price_per_g = 152.928  # 95% enrichment sigma Aldrich
-        # Physics-based burn rate for lithium
-        burn_kg_per_year_per_gw = 100  # 100 kg per GW-year
+        fuel_price_per_g = 152.928
+        burn_kg_per_year_per_gw = 100
         burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
         fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
     elif fuel_type == "Tritium":
         fuel_price_per_g = 300
-        fuel_grams_per_mwh = 0.00947  # original hard-coded value
+        fuel_grams_per_mwh = 0.00947
     elif fuel_type == "Lithium-Liquid":
-        fuel_price_per_g = 152.928  # 95% enrichment sigma Aldrich
-        # Physics-based burn rate for lithium
-        burn_kg_per_year_per_gw = 100  # 100 kg per GW-year
+        fuel_price_per_g = 152.928
+        burn_kg_per_year_per_gw = 100
         burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
         fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
     else:
         raise ValueError("Invalid fuel type. Choose 'Lithium' or 'Tritium'.")
-
     total_fuel_cost = annual_energy_output_mwh * fuel_grams_per_mwh * fuel_price_per_g
-
-    # Region and risk-free rate
-    region = map_location_to_region(project_location)
+    region = map_location_to_region(config["project_location"])
     risk_free_rate = get_risk_free_rate(region)
     scenario = "base"
     unlevered_beta = get_unlevered_beta(scenario)
@@ -386,6 +447,8 @@ def run_cashflow_scenario(config):
     total_years = years_construction + plant_lifetime
     years = list(range(total_years))
     year_labels = [construction_start_year + y for y in years]
+    # t2 = time.time(); print(f'[PROFILE] after region/risk-free/tax: {t2-t0:.2f}s')
+    # --- Debt/amortization/depreciation setup ---
     cashflow_type = []
     revenue_vec = []
     fuel_vec = []
@@ -422,9 +485,10 @@ def run_cashflow_scenario(config):
         depreciable_base, dep_years, plant_lifetime
     )
     full_depreciation_schedule = [0] * years_construction + depreciation_schedule
+    # t3 = time.time(); print(f'[PROFILE] after debt/amortization/depreciation: {t3-t0:.2f}s')
+    # --- Construction loop ---
     for y in range(years_construction):
         esc = escalation_factors[y]
-        # Use S-curve to allocate capex outflow over construction years
         capex_outflow = drawdown_schedule[y] * esc
         financing_outflow = financing_charges / years_construction * esc
         interest_during_construction = (
@@ -451,6 +515,8 @@ def run_cashflow_scenario(config):
             equity_cf_vec.append(-toc * input_equity_pct)
         else:
             equity_cf_vec.append(0)
+    # t4 = time.time(); print(f'[PROFILE] after construction loop: {t4-t0:.2f}s')
+    # --- Operation loop ---
     for y in range(plant_lifetime):
         op_year = y + years_construction
         esc = escalation_factors[op_year]
@@ -470,8 +536,6 @@ def run_cashflow_scenario(config):
             if include_fuel_cost
             else 0
         )
-        # DEBUG PRINT
-        print(f"[DEBUG] Year {y+1} | Fuel Type: {fuel_type} | Fuel Price/g: {fuel_price_per_g} | Fuel g/MWh: {fuel_grams_per_mwh} | Annual Energy: {annual_energy} | Fuel Cost: {fuel}")
         fuel_vec.append(fuel)
         variable_om_cost = variable_om * annual_energy * esc
         fixed_om_cost = fixed_om * esc
@@ -514,6 +578,7 @@ def run_cashflow_scenario(config):
         unlevered_cf_vec.append(unlevered_cf)
         levered_cf_vec.append(levered_cf)
         equity_cf_vec.append(levered_cf)
+    # t5 = time.time(); print(f'[PROFILE] after operation loop: {t5-t0:.2f}s')
     if use_real_dollars:
         for y in range(len(unlevered_cf_vec)):
             deflator = (1 + escalation_rate) ** y
@@ -538,11 +603,13 @@ def run_cashflow_scenario(config):
         cumulative_levered_cf_vec = np.cumsum(levered_cf_vec).tolist()
         cumulative_equity_cf_vec = np.cumsum(equity_cf_vec).tolist()
     # treat years with zero scheduled debt service as "not applicable"
-    dscr_vec = np.where(
-        np.array(debt_service_vec) > 0,
-        np.array(noi_vec) / np.array(debt_service_vec),
-        np.nan,  # NaN suppresses plotting in Bokeh
-    ).tolist()
+    # Suppress divide by zero warnings for DSCR calculation
+    with np.errstate(divide='ignore', invalid='ignore'):
+        dscr_vec = np.where(
+            np.array(debt_service_vec) > 0,
+            np.array(noi_vec) / np.array(debt_service_vec),
+            np.nan,  # NaN suppresses plotting in Bokeh
+        ).tolist()
     debt_drawdown_vec = drawdown_schedule
     all_vectors = [
         year_labels,
@@ -621,6 +688,8 @@ def run_cashflow_scenario(config):
     equity_irr = npf.irr(equity_cf_vec)
     equity_payback = payback_period(cumulative_equity_cf_vec)
     equity_mult = sum(equity_cf_vec) / abs(toc * input_equity_pct)
+    # tN = time.time(); print(f'[PROFILE] before return: {tN-t0:.2f}s')
+    # print('[PROFILE] run_cashflow_scenario: end, total time:', time.time() - t0)
     return {
         "df": df,
         "equity_df": equity_df,
@@ -691,9 +760,11 @@ def run_sensitivity_analysis(base_config):
         0.14,
     ]
     drivers = [
+        ("Construction Years", ["years_construction"]),
         ("WACC", ["cost_of_debt"]),
-        ("Price", ["electricity_price"]),
-        ("O&M", ["variable_om", "fixed_om_per_mw"]),
+        ("Electricity Price", ["electricity_price"]),
+        ("EPC Cost", ["total_epc_cost"]),
+        ("Net Electric Power (MW)", ["net_electric_power_mw"]),
     ]
     metrics = []
     # For each driver and band
@@ -715,10 +786,19 @@ def run_sensitivity_analysis(base_config):
                 continue  # Already did base
             config_mod = copy.deepcopy(base_config)
             for key in keys:
-                if "om" in key:
-                    config_mod[key] *= 1 + band
-                else:
-                    config_mod[key] *= 1 + band
+                if key not in config_mod:
+                    # Try to compute years_construction if possible
+                    if key == "years_construction":
+                        if "project_energy_start_year" in config_mod and "construction_start_year" in config_mod:
+                            config_mod[key] = int(round(config_mod["project_energy_start_year"] - config_mod["construction_start_year"]))
+                        else:
+                            continue  # Cannot compute, skip this band
+                    else:
+                        continue  # Key missing, skip this band
+                config_mod[key] *= 1 + band
+                # If the key is one of the integer parameters, cast it back to int
+                if key in ["years_construction", "plant_lifetime", "dep_years", "repayment_term_years", "grace_period_years", "ramp_up_years"]:
+                    config_mod[key] = int(round(config_mod[key]))
             outputs = run_cashflow_scenario(config_mod)
             percent = f"{int(band*100):+d}%"
             metrics.append(
