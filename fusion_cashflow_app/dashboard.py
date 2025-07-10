@@ -17,8 +17,6 @@ from bokeh.models import (
     Tabs,
 )
 
-# ...existing code...
-
 # --- Highlight Facts & Figures ---
 # This Div will be updated with key metrics (LCOE, IRR, NPV, Payback, etc.)
 highlight_div = Div(
@@ -75,6 +73,7 @@ from bokeh.models import (
 )
 from fusion_cashflow_app.cashflow_engine import (
     get_default_config,
+    get_default_config_by_power_method,
     run_cashflow_scenario,
     run_sensitivity_analysis,
     get_avg_annual_return,
@@ -157,13 +156,13 @@ def make_widgets(config):
         value=config["plant_lifetime"],
         step=1,
     )
-    widgets["fusion_method"] = Select(
-        title="Fusion Method", value=config["fusion_method"], options=["MFE", "IFE"]
+    widgets["power_method"] = Select(
+        title="Power Method", value=config["power_method"], options=["MFE", "IFE", "PWR"]
     )
     widgets["net_electric_power_mw"] = Slider(
         title="Net Electric Power (MW)",
         start=10,
-        end=2000,
+        end=4000,
         value=config["net_electric_power_mw"],
         step=10,
     )
@@ -175,7 +174,12 @@ def make_widgets(config):
         step=0.01,
     )
     widgets["fuel_type"] = Select(
-        title="Fuel Type", value=config["fuel_type"], options=["Lithium-Solid", "Lithium-Liquid", "Tritium"]
+        title="Fuel Type", value=config["fuel_type"], options=[
+            "Lithium-Solid", 
+            "Lithium-Liquid", 
+            "Tritium",
+            "Fission Benchmark Enriched Uranium"
+        ]
     )
     widgets["input_debt_pct"] = Slider(
         title="Debt %", start=0.0, end=1.0, value=config["input_debt_pct"], step=0.01
@@ -412,6 +416,62 @@ def update_years_construction_display(attr, old, new):
     )
 widgets["construction_start_year"].on_change("value", update_years_construction_display)
 widgets["project_energy_start_year"].on_change("value", update_years_construction_display)
+
+# --- Make power method and fuel type reactive ---
+def update_fuel_type_based_on_power_method(attr, old, new):
+    power_method = widgets["power_method"].value
+    if power_method == "PWR":
+        # For PWR, force fission fuel
+        widgets["fuel_type"].value = "Fission Benchmark Enriched Uranium"
+        widgets["fuel_type"].options = ["Fission Benchmark Enriched Uranium"]
+    elif power_method in ["MFE", "IFE"]:
+        # For fusion methods, provide fusion fuel options
+        widgets["fuel_type"].options = ["Lithium-Solid", "Lithium-Liquid", "Tritium"]
+        if widgets["fuel_type"].value == "Fission Benchmark Enriched Uranium":
+            widgets["fuel_type"].value = "Lithium-Solid"
+    else:
+        # Default case - all options available
+        widgets["fuel_type"].options = [
+            "Lithium-Solid", 
+            "Lithium-Liquid", 
+            "Tritium", 
+            "Fission Benchmark Enriched Uranium"
+        ]
+
+def update_config_based_on_power_method(attr, old, new):
+    """Update all configuration parameters when power method changes."""
+    from fusion_cashflow_app.cashflow_engine import get_default_config_by_power_method
+    
+    power_method = widgets["power_method"].value
+    new_config = get_default_config_by_power_method(power_method)
+    
+    # Update all widgets with new configuration values
+    # Skip power_method itself to avoid recursion
+    for key, value in new_config.items():
+        if key in widgets and key != "power_method":
+            widget = widgets[key]
+            if isinstance(widget, (Slider, TextInput, Select)):
+                # For sliders, make sure the value is within range
+                if isinstance(widget, Slider):
+                    if value < widget.start:
+                        widget.start = value
+                    if value > widget.end:
+                        widget.end = value
+                widget.value = value
+            elif isinstance(widget, Checkbox):
+                widget.active = value
+    
+    # Update years construction display
+    years = widgets["project_energy_start_year"].value - widgets["construction_start_year"].value
+    widgets["years_construction_display"].text = (
+        f"<div style='margin-bottom:10px; color:#007aff; font-size:16px;'><b>Construction Duration (years):</b> {years}</div>"
+    )
+    
+    # Update fuel type options based on new power method
+    update_fuel_type_based_on_power_method(attr, old, new)
+
+widgets["power_method"].on_change("value", update_fuel_type_based_on_power_method)
+widgets["power_method"].on_change("value", update_config_based_on_power_method)
 
 outputs = run_cashflow_scenario(config)
 

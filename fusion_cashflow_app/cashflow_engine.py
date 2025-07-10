@@ -161,6 +161,7 @@ HARDCODED_AVG_RETURNS = {
     'Southeast Asia': 0.029292706115026546,
     'Sub-Saharan Africa': 0.09940116692389456,
 }
+#this was fetched on 09/07/2025
 
 def stooq_ping():
     # Try a very lightweight request to Stooq to check if API is up
@@ -320,7 +321,7 @@ def get_default_config():
         "years_construction": years_construction,  # Always numeric, so included in sensitivity
         "project_energy_start_year": project_energy_start_year,
         "plant_lifetime": 30,
-        "fusion_method": "MFE",
+        "power_method": "MFE",
         "net_electric_power_mw": 500,  # Core driver
         "capacity_factor": 0.9,
         "fuel_type": "Lithium-Solid",
@@ -351,6 +352,61 @@ def get_default_config():
     }
 
 
+def get_mfe_config():
+    """Return default configuration for MFE (Magnetic Fusion Energy) - ITER-based."""
+    return get_default_config()  # Uses ITER as the MFE baseline
+
+
+def get_pwr_config():
+    """Return default configuration for PWR (Pressurized Water Reactor) - Vogtle-based."""
+    return {
+        "project_name": "Plant Vogtle Units 3 & 4",
+        "project_location": "Waynesboro, Georgia, USA",
+        "construction_start_year": 2013,
+        "years_construction": 11,
+        "project_energy_start_year": 2024,
+        "plant_lifetime": 60,
+        "power_method": "PWR",
+        "net_electric_power_mw": 2231,
+        "capacity_factor": 0.90,
+        "fuel_type": "Fission Benchmark Enriched Uranium",
+        "input_debt_pct": 0.70,
+        "cost_of_debt": 0.05,
+        "loan_rate": 0.05,
+        "financing_fee": 0.01,
+        "repayment_term_years": 30,
+        "grace_period_years": 3,
+        "total_epc_cost": 35000000000,
+        "extra_capex_pct": 0.0,
+        "project_contingency_pct": 0.0,
+        "process_contingency_pct": 0.0,
+        "fixed_om_per_mw": 158610,
+        "variable_om": 2.54,
+        "electricity_price": 70,
+        "dep_years": 20,
+        "salvage_value": 0,
+        "decommissioning_cost": 1000000000,
+        "use_real_dollars": False,
+        "price_escalation_active": True,
+        "escalation_rate": 0.02,
+        "include_fuel_cost": True,
+        "apply_tax_model": True,
+        "ramp_up": True,
+        "ramp_up_years": 3,
+        "ramp_up_rate_per_year": 0.33,
+    }
+
+
+def get_default_config_by_power_method(power_method):
+    """Return appropriate default configuration based on power method."""
+    if power_method == "MFE" or power_method == "IFE":
+        return get_mfe_config()
+    elif power_method == "PWR":
+        return get_pwr_config()
+    else:
+        return get_default_config()  # Fallback to generic default
+
+
 def run_cashflow_scenario(config):
     import time
     # print('[PROFILE] run_cashflow_scenario: start')
@@ -366,10 +422,37 @@ def run_cashflow_scenario(config):
         years_construction = int(round(project_energy_start_year - construction_start_year))
     plant_lifetime = config["plant_lifetime"]
     plant_lifetime = int(round(plant_lifetime))
-    fusion_method = config["fusion_method"]
+    power_method = config["power_method"]
+    
+    # --- Power Method Specific Adjustments ---
+    # Only apply fuel type logic based on power method
+    if power_method == "MFE":  # Magnetic Fusion Energy (Tokamak)
+        # MFE should use fusion-compatible fuels
+        if config["fuel_type"] not in ["Lithium-Solid", "Lithium-Liquid", "Tritium"]:
+            fuel_type = "Lithium-Solid"  # Default for MFE
+        else:
+            fuel_type = config["fuel_type"]
+        
+    elif power_method == "IFE":  # Inertial Fusion Energy (Laser-driven)
+        # IFE should use fusion-compatible fuels
+        if config["fuel_type"] not in ["Lithium-Solid", "Lithium-Liquid", "Tritium"]:
+            fuel_type = "Tritium"  # Default for IFE
+        else:
+            fuel_type = config["fuel_type"]
+        
+    elif power_method == "PWR":  # Pressurized Water Reactor (Fission)
+        # PWR must use enriched uranium fuel
+        fuel_type = "Fission Benchmark Enriched Uranium"
+            
+    else:
+        # Default case - use config fuel type
+        fuel_type = config["fuel_type"]
+        if fuel_type not in ["Lithium-Solid", "Lithium-Liquid", "Tritium", "Fission Benchmark Enriched Uranium"]:
+            fuel_type = "Lithium-Solid"
+    
+    # Apply power method adjustments to key variables
     net_electric_power_mw = config["net_electric_power_mw"]
-    capacity_factor = config["capacity_factor"]
-    fuel_type = config["fuel_type"]
+    capacity_factor = config["capacity_factor"]  # Use config value directly
     input_debt_pct = config["input_debt_pct"]
     input_equity_pct = 1.0 - input_debt_pct
     cost_of_debt = config["cost_of_debt"]
@@ -379,12 +462,12 @@ def run_cashflow_scenario(config):
     repayment_term_years = int(round(repayment_term_years))
     grace_period_years = config["grace_period_years"]
     grace_period_years = int(round(grace_period_years))
-    total_epc_cost = config["total_epc_cost"]
+    total_epc_cost = config["total_epc_cost"]  # Use config value directly
     extra_capex = total_epc_cost * config["extra_capex_pct"]
     project_contingency_cost = total_epc_cost * config["project_contingency_pct"]
     process_contingency_cost = total_epc_cost * config["process_contingency_pct"]
-    fixed_om = config["fixed_om_per_mw"] * net_electric_power_mw
-    variable_om = config["variable_om"]
+    fixed_om = config["fixed_om_per_mw"] * net_electric_power_mw  # Use config values directly
+    variable_om = config["variable_om"]  # Use config value directly
     electricity_price = config["electricity_price"]
     dep_years = config["dep_years"]
     dep_years = int(round(dep_years))
@@ -415,6 +498,9 @@ def run_cashflow_scenario(config):
         burn_kg_per_year_per_gw = 100
         burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
         fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
+    elif fuel_type == "Fission Benchmark Enriched Uranium":
+        fuel_price_per_g = 1.663
+        fuel_grams_per_mwh = 2.78 #https://world-nuclear.org/information-library/economic-aspects/economics-of-nuclear-power
     else:
         raise ValueError("Invalid fuel type. Choose 'Lithium' or 'Tritium'.")
     total_fuel_cost = annual_energy_output_mwh * fuel_grams_per_mwh * fuel_price_per_g
