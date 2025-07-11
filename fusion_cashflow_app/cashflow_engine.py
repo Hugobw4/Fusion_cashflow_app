@@ -93,17 +93,17 @@ REGION_INDEX_TICKERS = {
 }
 
 REGIONAL_TAX_RATES = {
-    "North America": 0.21,  # U.S. federal (post-TCJA) + average state
-    "Europe": 0.23,  # Germany/France average
-    "China": 0.25,  # Standard corporate rate
-    "India": 0.25,  # Post-reform base rate
-    "Oceania": 0.30,  # Australia
-    "Southern Africa": 0.28,  # South Africa
-    "MENA": 0.20,  # UAE 9% introduced in 2023; SA ~20%
-    "Sub-Saharan Africa": 0.30,  # Nigeria/Kenya average
-    "Latin America": 0.34,  # Brazil high; regional average
-    "Russia & CIS": 0.20,  # Russia
-    "Southeast Asia": 0.25,  # Philippines/Malaysia average
+    "North America": 25.59, #https://taxfoundation.org/data/all/global/corporate-tax-rates-by-country-2024/
+    "Europe": 20.18, #https://taxfoundation.org/data/all/global/corporate-tax-rates-by-country-2024/
+    "China": 25.00, #https://taxsummaries.pwc.com/peoples-republic-of-china/corporate/taxes-on-corporate-income#:~:text=Under%20the%20CIT%20law%2C%20the,standard%20tax%20rate%20is%2025
+    "India": 15.00, #https://taxsummaries.pwc.com/india/corporate/taxes-on-corporate-income#:~:text=Reduced%20rate%20of%20tax%20for,engaged%20in%20generation%20of%20electricity  ENERGY SECTOR SPECIFIC
+    "Southen Africa": 27.00, # https://taxsummaries.pwc.com/south-africa/corporate/taxes-on-corporate-income#:~:text=For%20tax%20years%20ending%20before,or%20after%2031%20March%202023
+    "Oceania": 24.38, #https://taxfoundation.org/data/all/global/corporate-tax-rates-by-country-2024/
+    "MENA": 55.00, #https://taxsummaries.pwc.com/oman/corporate/taxes-on-corporate-income#:~:text=Petroleum%20income%20tax NO SPECIFIC ENERGY GENERATION TAX BUT PETROLEUM COMPANYS PAY 55% OMAN AND UAE
+    "Sub-Saharan Africa": 27.28, #https://taxfoundation.org/data/all/global/corporate-tax-rates-by-country-2024/
+    "Latin America": 27.36, #https://pages.stern.nyu.edu/~adamodar/pc/archives/countrytaxrates21.xls#:~:text=%5BXLS%5D%20https%3A%2F%2Fpages.stern.nyu.edu%2F,27.36
+    "Russia & CIS": 25.00, #https://tass.com/economy/1816413#:~:text=MOSCOW%2C%20July%2012,of%20the%20corporate%20income%20tax
+    "Southeast Asia": 23.00 # https://www.aseanbriefing.com/news/comparing-tax-rates-across-asean/#:~:text=Currently%2C%20most%20of%20the%20ASEAN,the%20overall%20cost%20of%20doing
 }
 
 
@@ -221,7 +221,8 @@ def get_avg_annual_return(region, start="2000-01-01", end=None):
 
 def get_tax_rate(region):
     """Get the corporate tax rate for the region."""
-    return REGIONAL_TAX_RATES.get(region, 0.25)
+    # Tax rates are stored as percentages, convert to decimal
+    return REGIONAL_TAX_RATES.get(region, 25.0) / 100.0
 
 
 def straight_line_half_year(total_cost, dep_years, plant_lifetime):
@@ -235,7 +236,7 @@ def straight_line_half_year(total_cost, dep_years, plant_lifetime):
 
 
 def build_debt_drawdown_and_amortization(
-    principal, loan_rate, years, grace, plant_lifetime, years_construction
+    principal, loan_rate, repayment_term_years, grace, plant_lifetime, years_construction
 ):
     """Debt drawdown during construction (S-curve), then amortization (interest only, then principal)."""
     total_years = years_construction + plant_lifetime
@@ -266,7 +267,7 @@ def build_debt_drawdown_and_amortization(
             break
          # Simple amortization for now, can be improved with more complex methods
         interest_payment = remaining_principal * loan_rate
-        principal_payment = min(remaining_principal, principal / (years - grace))  # Even principal repayment over remaining years
+        principal_payment = min(remaining_principal, principal / repayment_term_years)  # Even principal repayment over repayment term
         amort_schedule[y] = (principal_payment, interest_payment)
         remaining_principal -= principal_payment
         
