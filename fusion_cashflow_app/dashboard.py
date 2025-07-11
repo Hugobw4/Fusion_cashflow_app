@@ -131,15 +131,15 @@ def make_widgets(config):
     )
     widgets["construction_start_year"] = Slider(
         title="Construction Start Year",
-        start=1990,
-        end=2050,
+        start=1980,
+        end=2150,
         value=config["construction_start_year"],
         step=1,
     )
     widgets["project_energy_start_year"] = Slider(
         title="Energy Start Year",
-        start=1990,
-        end=2100,
+        start=1985,
+        end=2200,
         value=config["project_energy_start_year"],
         step=1,
     )
@@ -151,7 +151,7 @@ def make_widgets(config):
     )
     widgets["plant_lifetime"] = Slider(
         title="Plant Lifetime (years)",
-        start=5,
+        start=20,
         end=80,
         value=config["plant_lifetime"],
         step=1,

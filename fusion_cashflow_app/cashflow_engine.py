@@ -236,7 +236,7 @@ def straight_line_half_year(total_cost, dep_years, plant_lifetime):
 
 
 def build_debt_drawdown_and_amortization(
-    principal, loan_rate, years, grace, plant_lifetime, years_construction
+    principal, loan_rate, repayment_term_years, grace, plant_lifetime, years_construction
 ):
     """Debt drawdown during construction (S-curve), then amortization (interest only, then principal)."""
     total_years = years_construction + plant_lifetime
@@ -267,7 +267,7 @@ def build_debt_drawdown_and_amortization(
             break
          # Simple amortization for now, can be improved with more complex methods
         interest_payment = remaining_principal * loan_rate
-        principal_payment = min(remaining_principal, principal / (years - grace))  # Even principal repayment over remaining years
+        principal_payment = min(remaining_principal, principal / repayment_term_years)  # Even principal repayment over repayment term
         amort_schedule[y] = (principal_payment, interest_payment)
         remaining_principal -= principal_payment
         
