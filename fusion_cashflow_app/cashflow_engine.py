@@ -221,7 +221,8 @@ def get_avg_annual_return(region, start="2000-01-01", end=None):
 
 def get_tax_rate(region):
     """Get the corporate tax rate for the region."""
-    return REGIONAL_TAX_RATES.get(region, 0.25)
+    # Tax rates are stored as percentages, convert to decimal
+    return REGIONAL_TAX_RATES.get(region, 25.0) / 100.0
 
 
 def straight_line_half_year(total_cost, dep_years, plant_lifetime):
