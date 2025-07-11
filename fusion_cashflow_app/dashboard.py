@@ -152,7 +152,7 @@ def make_widgets(config):
     widgets["plant_lifetime"] = Slider(
         title="Plant Lifetime (years)",
         start=5,
-        end=60,
+        end=80,
         value=config["plant_lifetime"],
         step=1,
     )
