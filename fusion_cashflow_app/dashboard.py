@@ -71,14 +71,14 @@ hv.extension("bokeh")
 from bokeh.models import (
     Div,
 )
-from fusion_cashflow_app.cashflow_engine import (
+from cashflow_engine import (
     get_default_config,
     get_default_config_by_power_method,
     run_cashflow_scenario,
     run_sensitivity_analysis,
     get_avg_annual_return,
 )
-from fusion_cashflow_app.visuals.bokeh_plots import (
+from visuals.bokeh_plots import (
     plot_annual_cashflow_bokeh,
     plot_cumulative_cashflow_bokeh,
     plot_dscr_profile_bokeh,
@@ -215,6 +215,10 @@ def make_widgets(config):
         value=config["grace_period_years"],
         step=1,
     )
+    # EPC Cost Control Toggle
+    widgets["override_epc"] = Checkbox(
+        label="Manual EPC Cost Override", active=config.get("override_epc", False)
+    )
     widgets["total_epc_cost"] = Slider(
         title="Total EPC Cost ($)",
         start=1e9,
@@ -222,6 +226,29 @@ def make_widgets(config):
         value=config["total_epc_cost"],
         step=1e8,
         format="0,0",
+        visible=config.get("override_epc", False),  # Initially hidden unless override is active
+    )
+    # Q Engineering Control Toggle
+    widgets["override_q_eng"] = Checkbox(
+        label="Manual Q Engineering Override", active=config.get("override_q_eng", False)
+    )
+    widgets["manual_q_eng"] = Slider(
+        title="Q Engineering Value",
+        start=1.0,
+        end=15.0,
+        value=config.get("manual_q_eng", 4.0),
+        step=0.1,
+        visible=config.get("override_q_eng", False),  # Initially hidden unless override is active
+    )
+    
+    # Display widgets for auto-calculated values (read-only)
+    widgets["auto_epc_display"] = Div(
+        text="<div style='margin-bottom:10px; color:#007aff; font-size:16px;'><b>Auto EPC Cost:</b> Calculating...</div>",
+        width=400,
+    )
+    widgets["auto_q_eng_display"] = Div(
+        text="<div style='margin-bottom:10px; color:#007aff; font-size:16px;'><b>Auto Q Engineering:</b> Calculating...</div>",
+        width=400,
     )
     widgets["extra_capex_pct"] = Slider(
         title="Extra CapEx %",
@@ -334,6 +361,39 @@ DEBOUNCE_DELAY = 0.35  # seconds
 
 def update_dashboard():
     config = get_config_from_widgets(widgets)
+    
+    # Calculate auto-generated values for display
+    try:
+        # Import power_to_epc functions for auto calculations
+        from power_to_epc import arpa_epc, get_regional_factor
+        from q_model import estimate_q_eng
+        
+        net_mw = config["net_electric_power_mw"]
+        tech = config["power_method"]
+        location = config["project_location"]
+        years_construction = config["project_energy_start_year"] - config["construction_start_year"]
+        
+        # Calculate auto Q engineering
+        auto_q_eng = estimate_q_eng(net_mw, tech)
+        widgets["auto_q_eng_display"].text = f"<div style='margin-bottom:10px; color:#007aff; font-size:16px;'><b>Auto Q Engineering:</b> {auto_q_eng:.2f}</div>"
+        
+        # Calculate auto EPC cost
+        region_factor = get_regional_factor(location)
+        epc_result = arpa_epc(
+            net_mw=net_mw,
+            years=years_construction,
+            tech=tech,
+            region_factor=region_factor,
+            noak=True
+        )
+        auto_epc_cost = epc_result["total_epc_cost"]
+        auto_epc_per_kw = epc_result["cost_per_kw"]
+        widgets["auto_epc_display"].text = f"<div style='margin-bottom:10px; color:#007aff; font-size:16px;'><b>Auto EPC Cost:</b> ${auto_epc_cost/1e9:.2f}B (${auto_epc_per_kw:,.0f}/kW)</div>"
+        
+    except Exception as e:
+        widgets["auto_q_eng_display"].text = f"<div style='margin-bottom:10px; color:#ff3b30; font-size:16px;'><b>Auto Q Engineering:</b> Error: {str(e)[:50]}...</div>"
+        widgets["auto_epc_display"].text = f"<div style='margin-bottom:10px; color:#ff3b30; font-size:16px;'><b>Auto EPC Cost:</b> Error: {str(e)[:50]}...</div>"
+    
     outputs = run_cashflow_scenario(config)
     highlight_div.text = render_highlight_facts(outputs)
     annual_fig = plot_annual_cashflow_bokeh(outputs, config)
@@ -472,6 +532,19 @@ def update_config_based_on_power_method(attr, old, new):
 
 widgets["power_method"].on_change("value", update_fuel_type_based_on_power_method)
 widgets["power_method"].on_change("value", update_config_based_on_power_method)
+
+# --- EPC and Q Engineering Visibility Toggle Functions ---
+def toggle_epc_slider_visibility(attr, old, new):
+    """Show/hide the manual EPC cost slider based on override checkbox."""
+    widgets["total_epc_cost"].visible = new
+
+def toggle_q_eng_slider_visibility(attr, old, new):
+    """Show/hide the manual Q Engineering slider based on override checkbox."""
+    widgets["manual_q_eng"].visible = new
+
+# Set up visibility toggle callbacks
+widgets["override_epc"].on_change("active", toggle_epc_slider_visibility)
+widgets["override_q_eng"].on_change("active", toggle_q_eng_slider_visibility)
 
 outputs = run_cashflow_scenario(config)
 
@@ -613,10 +686,69 @@ dscr_download = make_download_button(dscr_source, "Download DSCR Table", "dscr.c
 
 
 # --- Layout ---
+# --- Layout ---
 sidebar = column(
     Div(text=APPLE_CSS),
     Div(text="<h2 style='margin-bottom:8px;'>Fusion Cashflow App</h2><p style='color:#888;'>Adjust inputs and see results instantly.</p>"),
-    *[w for w in widgets.values()],
+    
+    # Basic project settings
+    widgets["project_name"],
+    widgets["project_location"],
+    widgets["construction_start_year"],
+    widgets["project_energy_start_year"],
+    widgets["years_construction_display"],
+    widgets["plant_lifetime"],
+    
+    # Power and technology
+    widgets["power_method"],
+    widgets["net_electric_power_mw"],
+    widgets["capacity_factor"],
+    widgets["fuel_type"],
+    
+    # EPC Cost Integration
+    Div(text="<h3 style='margin-top:20px;color:#333;'>EPC Cost Integration</h3>"),
+    widgets["auto_epc_display"],
+    widgets["override_epc"],
+    widgets["total_epc_cost"],
+    
+    # Q Engineering Integration
+    Div(text="<h3 style='margin-top:20px;color:#333;'>Q Engineering Integration</h3>"),
+    widgets["auto_q_eng_display"],
+    widgets["override_q_eng"],
+    widgets["manual_q_eng"],
+    
+    # Financial parameters
+    Div(text="<h3 style='margin-top:20px;color:#333;'>Financial Parameters</h3>"),
+    widgets["input_debt_pct"],
+    widgets["cost_of_debt"],
+    widgets["loan_rate"],
+    widgets["financing_fee"],
+    widgets["repayment_term_years"],
+    widgets["grace_period_years"],
+    
+    # Cost parameters
+    Div(text="<h3 style='margin-top:20px;color:#333;'>Cost Parameters</h3>"),
+    widgets["extra_capex_pct"],
+    widgets["project_contingency_pct"],
+    widgets["process_contingency_pct"],
+    widgets["fixed_om_per_mw"],
+    widgets["variable_om"],
+    widgets["electricity_price"],
+    
+    # Operations
+    Div(text="<h3 style='margin-top:20px;color:#333;'>Operations</h3>"),
+    widgets["dep_years"],
+    widgets["salvage_value"],
+    widgets["decommissioning_cost"],
+    widgets["use_real_dollars"],
+    widgets["price_escalation_active"],
+    widgets["escalation_rate"],
+    widgets["include_fuel_cost"],
+    widgets["apply_tax_model"],
+    widgets["ramp_up"],
+    widgets["ramp_up_years"],
+    widgets["ramp_up_rate_per_year"],
+    
     Spacer(height=16),
     annual_download,
     cum_download,

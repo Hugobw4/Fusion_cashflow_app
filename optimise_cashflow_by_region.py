@@ -39,8 +39,18 @@ try:
 except ImportError:
     from . import cashflow_engine
 
+# Import power-to-EPC module for EPC-driven optimization
+try:
+    from power_to_epc import inverse_mw_from_epc, get_regional_factor
+    POWER_TO_EPC_AVAILABLE = True
+except ImportError:
+    POWER_TO_EPC_AVAILABLE = False
+
 # Set random seed for reproducibility
 np.random.seed(42)
+
+# Global variable to store current design driver
+_current_design_driver = "mw"
 
 
 def get_supported_regions() -> List[str]:
@@ -66,79 +76,161 @@ def get_representative_location(region: str) -> str:
     return location_map.get(region, region)
 
 
-def create_instrumentation():
-    """Create the nevergrad instrumentation for optimization variables."""
+def create_instrumentation(design_driver: str = "mw"):
+    """
+    Create the nevergrad instrumentation for optimization variables.
+    
+    Args:
+        design_driver: "mw" for MW-driven (optimize MW, auto-generate EPC),
+                      "epc" for EPC-driven (optimize EPC, solve for MW)
+    """
+    if design_driver == "mw":
+        # MW-driven optimization: optimize MW, EPC auto-generated from power
+        return ng.p.Instrumentation(
+            electricity_price=ng.p.Scalar(lower=70, upper=110),  # More realistic range
+            net_electric_power_mw=ng.p.Scalar(lower=200, upper=5000),  # Larger plants for better economics
+            capacity_factor=ng.p.Scalar(lower=0.90, upper=0.93),  # More conservative
+            input_debt_pct=ng.p.Scalar(lower=0.50, upper=0.80),  # More realistic debt levels
+            years_construction=ng.p.Scalar(lower=6, upper=12),  # More realistic construction time
+            plant_lifetime=ng.p.Scalar(lower=25, upper=40),  # Standard plant life
+        )
+    elif design_driver == "epc":
+        # EPC-driven optimization: optimize EPC budget, solve MW with bisection
+        return ng.p.Instrumentation(
+            total_epc_cost=ng.p.Scalar(lower=15.0e9, upper=35.0e9),  # Higher realistic range
+            electricity_price=ng.p.Scalar(lower=70, upper=120),
+            capacity_factor=ng.p.Scalar(lower=0.85, upper=0.93),
+            input_debt_pct=ng.p.Scalar(lower=0.50, upper=0.80),
+            years_construction=ng.p.Scalar(lower=6, upper=12),
+            plant_lifetime=ng.p.Scalar(lower=25, upper=40),
+        )
+    else:
+        raise ValueError(f"Unknown design_driver: {design_driver}")
+
+
+def create_instrumentation_legacy():
+    """Create the original nevergrad instrumentation for backward compatibility."""
     return ng.p.Instrumentation(
         total_epc_cost=ng.p.Scalar(lower=8.0e9, upper=18.0e9),
         electricity_price=ng.p.Scalar(lower=90, upper=101),
         net_electric_power_mw=ng.p.Scalar(lower=200, upper=1000),
         capacity_factor=ng.p.Scalar(lower=0.90, upper=0.95),
         input_debt_pct=ng.p.Scalar(lower=0.20, upper=0.90),
-        cost_of_debt=ng.p.Scalar(lower=0.03, upper=0.09),
         years_construction=ng.p.Scalar(lower=15, upper=40),
         plant_lifetime=ng.p.Scalar(lower=20, upper=50),
     )
 
 
-def assemble_config(x: Dict[str, float], region: str) -> Dict[str, Any]:
-    """Assemble configuration dictionary from optimization variables and region."""
+def assemble_config(x: Dict[str, float], region: str, design_driver: str = "mw") -> Dict[str, Any]:
+    """
+    Assemble configuration dictionary from optimization variables and region.
+    
+    Args:
+        x: Optimization variables from nevergrad
+        region: Target region
+        design_driver: "mw" for MW-driven, "epc" for EPC-driven
+    """
     base = cashflow_engine.get_default_config()
     
     # Set the project location for this region
     base["project_location"] = get_representative_location(region)
     
-    # Overwrite the eight tunables with vector values
-    base["total_epc_cost"] = x["total_epc_cost"]
+    # Common variables for both design drivers
     base["electricity_price"] = x["electricity_price"]
-    base["net_electric_power_mw"] = x["net_electric_power_mw"]
     base["capacity_factor"] = x["capacity_factor"]
     base["input_debt_pct"] = x["input_debt_pct"]
-    base["cost_of_debt"] = x["cost_of_debt"]
     
-    # Construction and plant lifetime parameters
+    # Fixed cost of debt (not optimized)
+    base["cost_of_debt"] = 0.055  # 5.5% debt cost
+    
     base["years_construction"] = int(round(x["years_construction"]))
     base["plant_lifetime"] = int(round(x["plant_lifetime"]))
     
-    # Set construction start year to a reasonable baseline (2025) 
-    # The years_construction will determine when energy production starts
+    # Set construction start year to a reasonable baseline (2025)
     base["construction_start_year"] = 2025
     base["project_energy_start_year"] = base["construction_start_year"] + base["years_construction"]
     
-    # Also set loan_rate to match cost_of_debt for consistency
-    base["loan_rate"] = x["cost_of_debt"]
+    # Set loan_rate to match cost_of_debt for consistency
+    base["loan_rate"] = 0.055
+    
+    if design_driver == "mw":
+        # MW-driven: Set MW, let EPC auto-generate
+        base["net_electric_power_mw"] = x["net_electric_power_mw"]
+        base["override_epc"] = False  # Enable auto-EPC generation
+        
+    elif design_driver == "epc":
+        # EPC-driven: Set EPC budget, solve for optimal MW
+        base["total_epc_cost"] = x["total_epc_cost"]
+        base["override_epc"] = True  # Use manual EPC cost
+        
+        # Solve for optimal MW using bisection method
+        if POWER_TO_EPC_AVAILABLE:
+            try:
+                region_factor = get_regional_factor(base["project_location"])
+                optimal_mw = inverse_mw_from_epc(
+                    target_epc=x["total_epc_cost"],
+                    years=base["years_construction"],
+                    region_factor=region_factor,
+                    tech="MFE",
+                    method="arpa"
+                )
+                base["net_electric_power_mw"] = optimal_mw
+            except Exception:
+                # Fallback: estimate MW from cost using simple scaling
+                cost_per_kw = x["total_epc_cost"] / 1000  # Conservative estimate
+                base["net_electric_power_mw"] = min(1000, max(200, x["total_epc_cost"] / (12000 * 1000)))
+        else:
+            # Simple fallback without power_to_epc module
+            base["net_electric_power_mw"] = min(1000, max(200, x["total_epc_cost"] / (12000 * 1000)))
+    else:
+        # Legacy mode: use both variables directly
+        base["total_epc_cost"] = x.get("total_epc_cost", 13000000000)
+        base["net_electric_power_mw"] = x.get("net_electric_power_mw", 500)
+        base["override_epc"] = True
     
     return base
 
 
-def fitness(x: Dict[str, float], region: str) -> Tuple[float, float, float]:
+def fitness(x: Dict[str, float], region: str, design_driver: str = "mw") -> Tuple[float, float, float]:
     """
     Fitness function for multi-objective optimization.
+    
+    Args:
+        x: Optimization variables from nevergrad
+        region: Target region
+        design_driver: "mw" for MW-driven, "epc" for EPC-driven
     
     Returns:
         Tuple of (negative_irr, lcoe, negative_npv) for minimization
     """
     try:
-        cfg = assemble_config(x, region)
+        cfg = assemble_config(x, region, design_driver)
         out = cashflow_engine.run_cashflow_scenario(cfg)
         
         # Extract metrics with robust handling of inf/nan values
         try:
-            irr = out["irr"] if out["irr"] is not None and np.isfinite(out["irr"]) else -0.5
-            lcoe = out["lcoe_val"] if out["lcoe_val"] is not None and np.isfinite(out["lcoe_val"]) else 10000.0
-            npv = out["npv"] if out["npv"] is not None and np.isfinite(out["npv"]) else -1e10
+            irr = out["irr"] if out["irr"] is not None and np.isfinite(out["irr"]) else -0.1
+            lcoe = out["lcoe_val"] if out["lcoe_val"] is not None and np.isfinite(out["lcoe_val"]) else 1000.0
+            npv = out["npv"] if out["npv"] is not None and np.isfinite(out["npv"]) else -1e9
+            
+            # Validate LCOE - should not be negative for realistic projects
+            if lcoe < 0:
+                print(f"Warning: Negative LCOE detected ({lcoe:.2f}), setting to minimum realistic value")
+                lcoe = 20.0  # Minimum realistic LCOE for fusion
+                
         except KeyError as e:
             # Fallback in case metric names are different
             print(f"KeyError in fitness function: {e}")
             print(f"Available keys: {list(out.keys())}")
             # Use fallback values
-            irr = -0.5
-            lcoe = 10000.0
-            npv = -1e10
+            irr = -0.1
+            lcoe = 1000.0
+            npv = -1e9
         
         # Clamp values to prevent inf/nan issues in optimizer
-        irr = np.clip(irr, -1.0, 1.0)  # IRR between -100% and 100%
-        lcoe = np.clip(lcoe, -1000.0, 50000.0)  # Allow negative LCOE but cap it
-        npv = np.clip(npv, -1e11, 1e11)  # NPV between -$100B and +$100B
+        irr = np.clip(irr, -0.5, 0.5)  # IRR between -50% and 50% (more realistic)
+        lcoe = np.clip(lcoe, 10.0, 2000.0)  # LCOE between $20-2000/MWh (realistic range)
+        npv = np.clip(npv, -1e10, 1e10)  # NPV between -$10B and +$10B
         
         return (-irr, lcoe, -npv)  # Negative IRR and NPV for maximization
         
@@ -148,7 +240,7 @@ def fitness(x: Dict[str, float], region: str) -> Tuple[float, float, float]:
         return (0.5, 10000.0, 1e10)
 
 
-def optimize_region(region: str, budget: int = 400) -> pd.DataFrame:
+def optimize_region(region: str, budget: int = 400, design_driver: str = "mw") -> pd.DataFrame:
     """
     Run optimization for a single region using multiple single-objective optimizations
     to ensure we find the true best solutions for each metric.
@@ -156,11 +248,16 @@ def optimize_region(region: str, budget: int = 400) -> pd.DataFrame:
     Args:
         region: Region name
         budget: Total optimization budget (split across objectives)
+        design_driver: "mw" or "epc" to determine optimization mode
         
     Returns:
         DataFrame with optimization results
     """
-    print(f"Optimizing region: {region}")
+    print(f"Optimizing region: {region} (driver: {design_driver})")
+    
+    # Set global design driver
+    global _current_design_driver
+    _current_design_driver = design_driver
     
     # Split budget across three single-objective optimizations
     budget_per_objective = max(budget // 3, 50)  # Minimum 50 iterations per objective
@@ -169,17 +266,17 @@ def optimize_region(region: str, budget: int = 400) -> pd.DataFrame:
     
     # 1. Optimize for maximum IRR
     print(f"  Optimizing for IRR ({budget_per_objective} iterations)...")
-    candidates_irr = optimize_single_objective(region, "IRR", budget_per_objective)
+    candidates_irr = optimize_single_objective(region, "IRR", budget_per_objective, design_driver)
     all_candidates.extend(candidates_irr)
     
     # 2. Optimize for minimum LCOE
     print(f"  Optimizing for LCOE ({budget_per_objective} iterations)...")
-    candidates_lcoe = optimize_single_objective(region, "LCOE", budget_per_objective)
+    candidates_lcoe = optimize_single_objective(region, "LCOE", budget_per_objective, design_driver)
     all_candidates.extend(candidates_lcoe)
     
     # 3. Optimize for maximum NPV
     print(f"  Optimizing for NPV ({budget_per_objective} iterations)...")
-    candidates_npv = optimize_single_objective(region, "NPV", budget_per_objective)
+    candidates_npv = optimize_single_objective(region, "NPV", budget_per_objective, design_driver)
     all_candidates.extend(candidates_npv)
     
     # Convert to DataFrame and remove duplicates
@@ -195,11 +292,11 @@ def optimize_region(region: str, budget: int = 400) -> pd.DataFrame:
     return df
 
 
-def optimize_single_objective(region: str, objective: str, budget: int) -> List[Dict]:
+def optimize_single_objective(region: str, objective: str, budget: int, design_driver: str = "mw") -> List[Dict]:
     """Optimize for a single objective to find the true best solution."""
     
-    # Create instrumentation
-    instrumentation = create_instrumentation()
+    # Create instrumentation based on design driver
+    instrumentation = create_instrumentation(design_driver)
     
     # Use faster optimizer - OnePlusOne is much quicker for single objectives
     optimizer = ng.optimizers.OnePlusOne(parametrization=instrumentation, budget=budget)
@@ -218,32 +315,57 @@ def optimize_single_objective(region: str, objective: str, budget: int) -> List[
                 args, kwargs = x.value
                 params = kwargs
             else:
-                param_names = ['total_epc_cost', 'electricity_price', 'net_electric_power_mw', 
-                              'capacity_factor', 'input_debt_pct', 'cost_of_debt',
-                              'years_construction', 'plant_lifetime']
+                # Parameter names depend on design driver
+                if design_driver == "mw":
+                    param_names = ['electricity_price', 'net_electric_power_mw', 
+                                  'capacity_factor', 'input_debt_pct',
+                                  'years_construction', 'plant_lifetime']
+                elif design_driver == "epc":
+                    param_names = ['total_epc_cost', 'electricity_price',
+                                  'capacity_factor', 'input_debt_pct',
+                                  'years_construction', 'plant_lifetime']
+                else:
+                    # Legacy mode
+                    param_names = ['total_epc_cost', 'electricity_price', 'net_electric_power_mw', 
+                                  'capacity_factor', 'input_debt_pct',
+                                  'years_construction', 'plant_lifetime']
                 if isinstance(x.value, (list, tuple)):
                     params = dict(zip(param_names, x.value))
                 else:
                     params = x.value
         
         # Calculate single objective fitness
-        fitness_value = single_objective_fitness(params, region, objective)
+        fitness_value = single_objective_fitness(params, region, objective, design_driver)
         
         # Tell optimizer the result
         optimizer.tell(x, fitness_value)
         
         # Store candidate with full metrics
         try:
-            cfg = assemble_config(params, region)
+            cfg = assemble_config(params, region, design_driver)
             out = cashflow_engine.run_cashflow_scenario(cfg)
             
+            # Get EPC cost from either params or config (depending on design driver)
+            if design_driver == "mw":
+                # In MW-driven mode, EPC is auto-generated, get it from the cashflow engine output
+                epc_cost = out.get('total_epc_cost', 13000000000)
+                net_mw = params['net_electric_power_mw']
+            elif design_driver == "epc":
+                # In EPC-driven mode, EPC is from params, MW is solved
+                epc_cost = params['total_epc_cost']
+                net_mw = cfg['net_electric_power_mw']  # This was solved by assemble_config
+            else:
+                # Legacy mode - both should be in params
+                epc_cost = params.get('total_epc_cost', 0)
+                net_mw = params.get('net_electric_power_mw', 0)
+            
             candidate = {
-                'total_epc_cost': params['total_epc_cost'],
+                'total_epc_cost': epc_cost,
                 'electricity_price': params['electricity_price'],
-                'net_electric_power_mw': params['net_electric_power_mw'],
+                'net_electric_power_mw': net_mw,
                 'capacity_factor': params['capacity_factor'],
                 'input_debt_pct': params['input_debt_pct'],
-                'cost_of_debt': params['cost_of_debt'],
+                'cost_of_debt': 0.055,  # Fixed at 5.5%
                 'years_construction': int(round(params['years_construction'])),
                 'plant_lifetime': int(round(params['plant_lifetime'])),
                 'IRR': out.get('irr', 0.0),
@@ -274,10 +396,10 @@ def optimize_single_objective(region: str, objective: str, budget: int) -> List[
     return candidates
 
 
-def single_objective_fitness(params: Dict[str, float], region: str, objective: str) -> float:
+def single_objective_fitness(params: Dict[str, float], region: str, objective: str, design_driver: str = "mw") -> float:
     """Calculate fitness for a single objective."""
     try:
-        cfg = assemble_config(params, region)
+        cfg = assemble_config(params, region, design_driver)
         out = cashflow_engine.run_cashflow_scenario(cfg)
         
         if objective == "IRR":
@@ -286,8 +408,11 @@ def single_objective_fitness(params: Dict[str, float], region: str, objective: s
             return -irr  # Negative for minimization
             
         elif objective == "LCOE":
-            lcoe = out.get("lcoe_val", 10000.0)
-            lcoe = np.clip(lcoe, 0.0, 50000.0) if np.isfinite(lcoe) else 10000.0
+            lcoe = out.get("lcoe_val", 1000.0)
+            # Validate LCOE - should not be negative
+            if lcoe < 0:
+                lcoe = 1000.0  # Penalty for unrealistic negative LCOE
+            lcoe = np.clip(lcoe, 20.0, 2000.0) if np.isfinite(lcoe) else 1000.0
             return lcoe  # Positive for minimization
             
         elif objective == "NPV":
@@ -356,13 +481,13 @@ def remove_duplicate_scenarios(df: pd.DataFrame, tolerance: float = 0.01) -> pd.
 
 def optimize_single_region_for_parallel(args_tuple):
     """Wrapper function for parallel processing."""
-    region, budget, outdir = args_tuple
+    region, budget, outdir, design_driver = args_tuple
     try:
         print(f"\n{'='*60}")
         print(f"Region: {region}")
         print(f"{'='*60}")
         
-        df = optimize_region(region, budget)
+        df = optimize_region(region, budget, design_driver)
         top_15 = df.head(15)
         
         # Save to CSV
@@ -392,6 +517,8 @@ def main():
     parser.add_argument("--outdir", type=str, default=".", help="Output directory")
     parser.add_argument("--regions", nargs="*", help="Specific regions to optimize (default: all)")
     parser.add_argument("--parallel", action="store_true", help="Use parallel processing")
+    parser.add_argument("--design-driver", choices=["mw", "epc"], default="mw",
+                       help="Design driver: 'mw' for MW-driven (auto EPC), 'epc' for EPC-driven (solve MW)")
     args = parser.parse_args()
     
     # Setup output directory
@@ -416,7 +543,7 @@ def main():
         import multiprocessing as mp
         
         # Create arguments tuples for parallel processing
-        args_tuples = [(region, args.budget, outdir) for region in regions]
+        args_tuples = [(region, args.budget, outdir, args.design_driver) for region in regions]
         
         with ProcessPoolExecutor(max_workers=min(4, len(regions))) as executor:
             results = list(executor.map(optimize_single_region_for_parallel, args_tuples))
@@ -432,7 +559,7 @@ def main():
                 print(f"{'='*60}")
                 
                 # Run optimization
-                df = optimize_region(region, args.budget)
+                df = optimize_region(region, args.budget, args.design_driver)
                 
                 # Get top 15 scenarios
                 top_15 = df.head(15)

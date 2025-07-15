@@ -18,6 +18,23 @@ import pandas_datareader.data as web
 import datetime
 import requests
 
+# Try to import power_to_epc module, fall back to manual EPC if not available
+try:
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+    from power_to_epc import arpa_epc, get_regional_factor
+    POWER_TO_EPC_AVAILABLE = True
+except ImportError:
+    POWER_TO_EPC_AVAILABLE = False
+
+# Try to import Q model for dynamic engineering Q estimation
+try:
+    from q_model import estimate_q_eng
+    Q_MODEL_AVAILABLE = True
+except ImportError:
+    Q_MODEL_AVAILABLE = False
+
 # =============================
 # Dictionaries & Mappings (Do Not Edit)
 # =============================
@@ -295,21 +312,19 @@ def lcoe_from_cost_vectors_with_tax(capex_vec, opex_vec, fuel_vec, decom_vec,
                                    energy_vec, discount_rate, tax_vec):
     """
     Enhanced LCOE with tax effects:
-    PV(all costs - tax savings) ÷ PV(discounted energy)
+    PV(all costs + taxes paid) ÷ PV(discounted energy)
     
-    Tax savings come from depreciation shields and other deductible expenses.
-    This gives a more accurate after-tax cost of energy.
+    Note: tax_vec contains actual cash taxes paid to government,
+    which are additional costs, not savings.
     """
-    # Calculate net costs after tax effects
-    gross_costs = (np.array(capex_vec) + 
+    # Calculate total costs including taxes
+    total_costs = (np.array(capex_vec) + 
                    np.array(opex_vec) + 
                    np.array(fuel_vec) + 
-                   np.array(decom_vec))
+                   np.array(decom_vec) +
+                   np.array(tax_vec))  # Add taxes as costs, not subtract!
     
-    # Net costs = gross costs - tax savings from depreciation
-    net_cost_vec = gross_costs - np.array(tax_vec)
-    
-    pv_costs = npf.npv(discount_rate, net_cost_vec)
+    pv_costs = npf.npv(discount_rate, total_costs)
     pv_energy = npf.npv(discount_rate, energy_vec)
     
     return pv_costs / pv_energy if pv_energy > 0 else np.nan
@@ -364,7 +379,10 @@ def get_default_config():
         "financing_fee": 0.015,
         "repayment_term_years": 20,
         "grace_period_years": 3,
-        "total_epc_cost": 13000000000,  # Core driver
+        "total_epc_cost": 13000000000,  # Core driver - used only if override_epc=True
+        "override_epc": False,  # NEW: If True, use manual total_epc_cost; if False, auto-generate from power
+        "override_q_eng": False,  # NEW: If True, use manual Q_eng; if False, auto-generate from Q model
+        "manual_q_eng": 4.0,  # Manual Q engineering value (used only if override_q_eng=True)
         "extra_capex_pct": 0.05,
         "project_contingency_pct": 0.15,
         "process_contingency_pct": 0.20,
@@ -410,6 +428,7 @@ def get_pwr_config():
         "repayment_term_years": 30,
         "grace_period_years": 3,
         "total_epc_cost": 35000000000,
+        "override_epc": True,  # PWR uses historical actual cost
         "extra_capex_pct": 0.0,
         "project_contingency_pct": 0.0,
         "process_contingency_pct": 0.0,
@@ -495,7 +514,34 @@ def run_cashflow_scenario(config):
     repayment_term_years = int(round(repayment_term_years))
     grace_period_years = config["grace_period_years"]
     grace_period_years = int(round(grace_period_years))
-    total_epc_cost = config["total_epc_cost"]  # Use config value directly
+    
+    # --- Power-to-EPC Integration ---
+    override_epc = config.get("override_epc", False)
+    if override_epc or not POWER_TO_EPC_AVAILABLE:
+        # Use manual EPC cost from config
+        total_epc_cost = config["total_epc_cost"]
+    else:
+        # Auto-generate EPC cost from power using ARPA-E scaling
+        try:
+            region_factor = get_regional_factor(config["project_location"])
+            epc_result = arpa_epc(
+                net_mw=net_electric_power_mw,
+                years=years_construction,
+                tech=power_method,
+                region_factor=region_factor,
+                noak=True  # Assume NOAK for cost optimization
+            )
+            total_epc_cost = epc_result["total_epc_cost"]
+            
+            # Store EPC breakdown for analysis
+            config["_epc_breakdown"] = epc_result
+            
+        except Exception as e:
+            # Fallback to manual EPC if auto-generation fails
+            total_epc_cost = config["total_epc_cost"]
+            import warnings
+            warnings.warn(f"Power-to-EPC auto-generation failed: {e}. Using manual EPC cost.")
+    
     extra_capex = total_epc_cost * config["extra_capex_pct"]
     project_contingency_cost = total_epc_cost * config["project_contingency_pct"]
     process_contingency_cost = total_epc_cost * config["process_contingency_pct"]
@@ -864,6 +910,7 @@ def run_cashflow_scenario(config):
         "cumulative_equity_cf_vec": cumulative_equity_cf_vec,
         "energy_vec": energy_vec,
         "toc": toc,
+        "total_epc_cost": total_epc_cost,
         "input_equity_pct": input_equity_pct,
         "discount_rate": discount_rate,
         "wacc": wacc,
@@ -959,3 +1006,32 @@ def run_sensitivity_analysis(base_config):
             )
     df = pd.DataFrame(metrics)
     return df
+
+def get_estimated_q_eng(config):
+    """
+    Get estimated engineering Q for the given configuration.
+    
+    Args:
+        config: Configuration dictionary with power and technology parameters
+        
+    Returns:
+        Float: Engineering Q estimate, either from Q model or manual override
+    """
+    override_q_eng = config.get("override_q_eng", False)
+    
+    if override_q_eng:
+        # Use manual Q_eng value
+        return config.get("manual_q_eng", 4.0)
+    elif Q_MODEL_AVAILABLE:
+        # Use dynamic Q model
+        try:
+            net_mw = config["net_electric_power_mw"]
+            power_method = config.get("power_method", "MFE")
+            return estimate_q_eng(net_mw, power_method)
+        except Exception as e:
+            import warnings
+            warnings.warn(f"Q model estimation failed: {e}. Using default Q=4.0")
+            return 4.0
+    else:
+        # Fallback to default Q value
+        return 4.0
