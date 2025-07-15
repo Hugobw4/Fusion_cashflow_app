@@ -37,7 +37,7 @@ from slugify import slugify
 try:
     from fusion_cashflow_app import cashflow_engine
 except ImportError:
-    import cashflow_engine
+    from . import cashflow_engine
 
 # Set random seed for reproducibility
 np.random.seed(42)
