@@ -356,7 +356,7 @@ def get_config_from_widgets(widgets):
 # --- Throttling/debouncing for widget updates ---
 
 debounce_timer = None
-DEBOUNCE_DELAY = 0.35  # seconds
+DEBOUNCE_DELAY = 0.8  # seconds
 
 
 def update_dashboard():

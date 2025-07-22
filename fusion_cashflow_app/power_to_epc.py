@@ -30,94 +30,91 @@ except ImportError:
 
 # Building cost coefficients from ARPA-E MFE study
 # From pycosting_arpa_e_mfe.py Cost Category 21: Buildings
-# Original coefficients are in thousands of dollars, but appear to be for a reference plant
-# Apply realism multiplier to account for actual fusion plant complexity
+# Coefficients are in 2019 $/kW gross. Multiply by gross_power_kw.
 ARPA_BUILDING_COEFFS_RAW = {
-    "site_improvements": 268 * 0.5,      # C210100: DD scaling factor 0.5
-    "fusion_heat_island": 186.8 * 0.5,   # C210200: DD scaling factor 0.5
-    "turbine_building": 54.0,            # C210300
-    "heat_exchanger": 37.8,              # C210400
-    "power_supply": 10.8,                # C210500
-    "reactor_auxiliaries": 5.4,          # C210600
-    "hot_cell": 93.4 * 0.5,              # C210700: DD scaling factor 0.5
-    "reactor_services": 18.7,            # C210800
-    "service_water": 0.3,                # C210900
-    "fuel_storage": 1.1,                 # C211000
-    "control_room": 0.9,                 # C211100
-    "onsite_ac_power": 0.8,              # C211200
-    "administration": 4.4,               # C211300
-    "site_services": 1.6,                # C211400
-    "cryogenics": 2.4,                   # C211500
-    "security": 0.9,                     # C211600
-    "ventilation_stack": 27.0,           # C211700
+    "site_improvements": 268,            # C210100: $/kW 
+    "fusion_heat_island": 186.8,         # C210200: $/kW 
+    "turbine_building": 54.0,            # C210300: $/kW
+    "heat_exchanger": 37.8,              # C210400: $/kW
+    "power_supply": 10.8,                # C210500: $/kW
+    "reactor_auxiliaries": 5.4,          # C210600: $/kW
+    "hot_cell": 93.4,                    # C210700: $/kW 
+    "reactor_services": 18.7,            # C210800: $/kW
+    "service_water": 0.3,                # C210900: $/kW
+    "fuel_storage": 1.1,                 # C211000: $/kW
+    "control_room": 0.9,                 # C211100: $/kW
+    "onsite_ac_power": 0.8,              # C211200: $/kW
+    "administration": 4.4,               # C211300: $/kW
+    "site_services": 1.6,                # C211400: $/kW
+    "cryogenics": 2.4,                   # C211500: $/kW
+    "security": 0.9,                     # C211600: $/kW
+    "ventilation_stack": 27.0,           # C211700: $/kW
 }
 
-# Realism adjustment factors for fusion plant costs
-# ARPA-E coefficients are based on optimistic future projections
-BUILDING_REALISM_MULTIPLIER = 8.0  # Increased to match realistic nuclear costs (~$3,000-4,000/kW)
-BUILDING_SCALE_EXPONENT = 0.65     # Slightly more economy of scale
+# Scale factors for fusion plant costs
+BUILDING_SCALE_EXPONENT = 0.65     # dimensionless (economy of scale factor)
+REF_KW = 1_000_000                  # kW (1 GW-gross reference size)
+REACTOR_EQUIP_TO_BUILDING = 1.50    # dimensionless (reactor equipment as fraction of building base cost)
+MIN_DESIGN_CONTINGENCY = 0.05       # dimensionless (minimum contingency for NOAK plants)
 
-# Apply realism multiplier to get realistic building coefficients
-ARPA_BUILDING_COEFFS = {
-    component: coeff * BUILDING_REALISM_MULTIPLIER 
-    for component, coeff in ARPA_BUILDING_COEFFS_RAW.items()
-}
+# Use raw ARPA-E coefficients directly (no realism multiplier applied)
+ARPA_BUILDING_COEFFS = ARPA_BUILDING_COEFFS_RAW.copy()  # $/kW (use original coefficients without adjustment)
 
 # Pre-construction costs (from Cost Category 10)
 ARPA_PRECONSTRUCTION_COEFFS = {
-    "land_rights": {"sqrt_nmod": True, "pneutron_coeff": 0.9/239, "pnrl_coeff": 0.9/239},  # C110000
-    "site_permits": 10,        # C120000
-    "plant_licensing": 210,    # C130000
-    "plant_permits": 5,        # C140000
-    "plant_studies": 5,        # C150000
-    "plant_reports": 2,        # C160000
-    "other_preconstruction": 1,# C170000
+    "land_rights": {"sqrt_nmod": True, "pneutron_coeff": 0.9/239, "pnrl_coeff": 0.9/239},  # C110000: special (MW-based scaling)
+    "site_permits": 10_000_000,       # C120000: $ (fixed cost in dollars)
+    "plant_licensing": 210_000_000,   # C130000: $ (fixed cost in dollars)
+    "plant_permits": 5_000_000,       # C140000: $ (fixed cost in dollars)
+    "plant_studies": 5_000_000,       # C150000: $ (fixed cost in dollars)
+    "plant_reports": 2_000_000,       # C160000: $ (fixed cost in dollars)
+    "other_preconstruction": 1_000_000,# C170000: $ (fixed cost in dollars)
 }
 
 # Power balance parameters for fusion power calculation
 FUSION_POWER_PARAMS = {
     "MFE": {
-        "fuel_type": "DT",
-        "PALPHA": 520,  # Alpha power for DT fuel
-        "MN": 1.1,      # Neutron energy multiplier
-        "ETATH": 0.5,   # Thermal conversion efficiency
-        "ETADE": 0.85,  # Direct energy conversion efficiency
-        "PINPUT": 50,   # Input power
-        "FPCPPF": 0.06, # Primary Coolant Pumping Power Fraction
-        "FSUB": 0.03,   # Subsystem and Control Fraction
+        "fuel_type": "DT",        # — (deuterium-tritium)
+        "PALPHA": 520,            # MW (alpha power for DT fuel)
+        "MN": 1.1,                # dimensionless (neutron energy multiplier)
+        "ETATH": 0.5,             # dimensionless (thermal conversion efficiency)
+        "ETADE": 0.85,            # dimensionless (direct energy conversion efficiency)
+        "PINPUT": 50,             # MW (input power)
+        "FPCPPF": 0.06,           # dimensionless (Primary Coolant Pumping Power Fraction)
+        "FSUB": 0.03,             # dimensionless (Subsystem and Control Fraction)
     },
     "IFE": {
-        "fuel_type": "DT",
-        "PALPHA": 520,
-        "MN": 1.1,
-        "ETATH": 0.45,  # Slightly lower for IFE
-        "ETADE": 0.80,  # Slightly lower for IFE
-        "PINPUT": 75,   # Higher driver power for IFE
-        "FPCPPF": 0.04,
-        "FSUB": 0.03,
+        "fuel_type": "DT",        # — (deuterium-tritium)
+        "PALPHA": 520,            # MW (alpha power for DT fuel)
+        "MN": 1.1,                # dimensionless (neutron energy multiplier)
+        "ETATH": 0.45,            # dimensionless (thermal conversion efficiency, slightly lower for IFE)
+        "ETADE": 0.80,            # dimensionless (direct energy conversion efficiency, slightly lower for IFE)
+        "PINPUT": 75,             # MW (higher driver power for IFE)
+        "FPCPPF": 0.04,           # dimensionless (Primary Coolant Pumping Power Fraction)
+        "FSUB": 0.03,             # dimensionless (Subsystem and Control Fraction)
     }
 }
 
 # Regional cost adjustment factors
 REGIONAL_FACTORS = {
-    "North America": 1.0,
-    "Europe": 1.15,
-    "China": 0.65,
-    "India": 0.45,
-    "Oceania": 1.05,
-    "Southern Africa": 0.55,
-    "MENA": 0.70,
-    "Latin America": 0.60,
-    "Russia & CIS": 0.50,
-    "Southeast Asia": 0.50,
-    "Sub-Saharan Africa": 0.45,
+    "North America": 1.0,      # dimensionless (cost multiplier relative to North America baseline)
+    "Europe": 1.15,            # dimensionless (15% higher costs than North America)
+    "China": 0.65,             # dimensionless (35% lower costs than North America)
+    "India": 0.45,             # dimensionless (55% lower costs than North America)
+    "Oceania": 1.05,           # dimensionless (5% higher costs than North America)
+    "Southern Africa": 0.55,   # dimensionless (45% lower costs than North America)
+    "MENA": 0.70,              # dimensionless (30% lower costs than North America)
+    "Latin America": 0.60,     # dimensionless (40% lower costs than North America)
+    "Russia & CIS": 0.50,      # dimensionless (50% lower costs than North America)
+    "Southeast Asia": 0.50,    # dimensionless (50% lower costs than North America)
+    "Sub-Saharan Africa": 0.45,# dimensionless (55% lower costs than North America)
 }
 
 # CATF Cost Distribution Parameters (P10, P50, P90 in $/kW)
 CATF_COST_DISTRIBUTION = {
-    "P10": 8500,   # Optimistic
-    "P50": 12500,  # Median
-    "P90": 18000,  # Conservative
+    "P10": 8500,   # $/kW (optimistic 10th percentile cost)
+    "P50": 12500,  # $/kW (median 50th percentile cost)
+    "P90": 18000,  # $/kW (conservative 90th percentile cost)
 }
 
 
@@ -138,67 +135,67 @@ def _calculate_fusion_power_balance(net_mw: float, tech: str = "MFE") -> Dict[st
     # Constants from power balance
     PALPHA = params["PALPHA"]
     MN = params["MN"]
-    ETATH = params["ETATH"]
-    ETADE = params["ETADE"]
-    PINPUT = params["PINPUT"]
-    FPCPPF = params["FPCPPF"]
-    FSUB = params["FSUB"]
+    ETATH = params["ETATH"]      # dimensionless
+    ETADE = params["ETADE"]      # dimensionless
+    PINPUT = params["PINPUT"]    # MW
+    FPCPPF = params["FPCPPF"]    # dimensionless
+    FSUB = params["FSUB"]        # dimensionless
     
     # Fixed auxiliary loads (MW)
-    PTRIT = 10.0    # Tritium systems
-    PHOUSE = 4.0    # Housekeeping
-    PTFCOOL = 12.7  # TF coil cooling
-    PPFCOOL = 11.0  # PF coil cooling
-    PTF = 1.0       # TF coil power
-    PPF = 1.0       # PF coil power
-    PCRYO = 0.5     # Cryogenics
-    ETAPIN = 0.5    # Input power efficiency
+    PTRIT = 10.0    # MW (tritium systems)
+    PHOUSE = 4.0    # MW (housekeeping)
+    PTFCOOL = 12.7  # MW (TF coil cooling)
+    PPFCOOL = 11.0  # MW (PF coil cooling)
+    PTF = 1.0       # MW (TF coil power)
+    PPF = 1.0       # MW (PF coil power)
+    PCRYO = 0.5     # MW (cryogenics)
+    ETAPIN = 0.5    # dimensionless (input power efficiency)
     
-    PAUX = PTRIT + PHOUSE
-    PCOILS = PTF + PPF
-    PCOOL = PTFCOOL + PPFCOOL
+    PAUX = PTRIT + PHOUSE        # MW (MW + MW)
+    PCOILS = PTF + PPF           # MW (MW + MW)
+    PCOOL = PTFCOOL + PPFCOOL    # MW (MW + MW)
     
     # Solve for fusion power (PNRL) iteratively
     # Net power equation: PNET = (1 - 1/QENG) * PET
     # where QENG = (thermal_electric + direct_electric) / total_consumption
     
     # Use data-driven Q model instead of hard-coded estimates
-    q_eng_estimate = estimate_q_eng(net_mw, tech)
+    q_eng_estimate = estimate_q_eng(net_mw, tech)  # dimensionless
     
     # Initial guess: PNRL ≈ net_mw * (1 + 1/Q_eng) * conversion_factor
     # Accounting for thermal efficiency losses and auxiliary power
-    conversion_factor = 1.0 / (ETATH * 0.85)  # Account for gross-to-net losses
-    pnrl_guess = net_mw * (1 + 1/q_eng_estimate) * conversion_factor
+    conversion_factor = 1.0 / (ETATH * 0.85)  # dimensionless (1 / (dimensionless × dimensionless))
+    pnrl_guess = net_mw * (1 + 1/q_eng_estimate) * conversion_factor  # MW (MW × dimensionless × dimensionless)
     
     for _ in range(10):  # Iterative solver
-        PNEUTRON = pnrl_guess - PALPHA
-        PTH = MN * PNEUTRON + PINPUT + ETATH * (FPCPPF + FSUB) * (MN * PNEUTRON)
-        PTHE = ETATH * PTH
-        PDEE = ETADE * PALPHA
-        PET = PDEE + PTHE
+        PNEUTRON = pnrl_guess - PALPHA                                                    # MW (MW - MW)
+        PTH = MN * PNEUTRON + PINPUT + ETATH * (FPCPPF + FSUB) * (MN * PNEUTRON)        # MW (dimensionless × MW + MW + dimensionless × dimensionless × dimensionless × MW)
+        PTHE = ETATH * PTH                                                               # MW (dimensionless × MW)
+        PDEE = ETADE * PALPHA                                                            # MW (dimensionless × MW)
+        PET = PDEE + PTHE                                                                # MW (MW + MW)
         
-        PPUMP = FPCPPF * PTHE
-        PSUB = FSUB * PTHE
+        PPUMP = FPCPPF * PTHE                                                            # MW (dimensionless × MW)
+        PSUB = FSUB * PTHE                                                               # MW (dimensionless × MW)
         
-        total_consumption = PCOILS + PPUMP + PSUB + PAUX + PCOOL + PCRYO + PINPUT / ETAPIN
-        QENG = (PTHE + PDEE) / total_consumption
-        PNET_calc = (1 - 1/QENG) * PET
+        total_consumption = PCOILS + PPUMP + PSUB + PAUX + PCOOL + PCRYO + PINPUT / ETAPIN  # MW (MW + MW + MW + MW + MW + MW + MW/dimensionless)
+        QENG = (PTHE + PDEE) / total_consumption                                         # dimensionless ((MW + MW) / MW)
+        PNET_calc = (1 - 1/QENG) * PET                                                   # MW ((dimensionless - dimensionless/dimensionless) × MW)
         
         # Adjust PNRL based on error
-        error = PNET_calc - net_mw
-        if abs(error) < 0.1:  # Converged
+        error = PNET_calc - net_mw                                                       # MW (MW - MW)
+        if abs(error) < 0.1:  # Converged                                               # MW
             break
-        pnrl_guess -= error * 0.5  # Damped iteration
+        pnrl_guess -= error * 0.5  # Damped iteration                                   # MW (MW - MW × dimensionless)
     
     return {
-        "PNRL": pnrl_guess,
-        "PET": PET,
-        "PNET": PNET_calc,
-        "PNEUTRON": PNEUTRON,
-        "QENG": QENG,
-        "PTH": PTH,
-        "PTHE": PTHE,
-        "PDEE": PDEE,
+        "PNRL": pnrl_guess,      # MW
+        "PET": PET,              # MW
+        "PNET": PNET_calc,       # MW
+        "PNEUTRON": PNEUTRON,    # MW
+        "QENG": QENG,            # dimensionless
+        "PTH": PTH,              # MW
+        "PTHE": PTHE,            # MW
+        "PDEE": PDEE,            # MW
     }
 
 
@@ -230,93 +227,87 @@ def arpa_epc(net_mw: float, years: float, tech: str = "MFE",
     PNEUTRON = power_balance["PNEUTRON"]
     PNRL = power_balance["PNRL"]
     
-    # Use custom realism multiplier if provided
+    # Use custom realism multiplier if provided, otherwise use raw coefficients
     if realism_multiplier is not None:
-        # Create adjusted coefficients
+        # Apply custom realism multiplier to raw coefficients
         building_coeffs = {
-            component: coeff / BUILDING_REALISM_MULTIPLIER * realism_multiplier 
-            for component, coeff in ARPA_BUILDING_COEFFS.items()
+            component: coeff * realism_multiplier 
+            for component, coeff in ARPA_BUILDING_COEFFS_RAW.items()
         }
     else:
+        # Use raw ARPA-E coefficients without any adjustment
         building_coeffs = ARPA_BUILDING_COEFFS
     
     # Building costs (Cost Category 21) - scale with gross electric power
-    building_costs = {}
-    building_total = 0.0
+    gross_power_kw = PET * 1_000  # kW (MW × 1000 kW/MW)
+    building_costs = {
+        k: coeff                                   # $/kW
+           * (gross_power_kw / REF_KW)             # dimensionless
+             ** BUILDING_SCALE_EXPONENT            # dimensionless
+           * gross_power_kw                        # kW
+        for k, coeff in building_coeffs.items()
+    }  # $ ($/kW × (kW/kW)^exp × kW)
+    building_base = sum(building_costs.values())  # $ (before contingency)
     
-    # Apply realistic scaling with economy of scale factor
-    # Base calculation: coefficient * (PET^scale_exponent) * scaling_factor
-    # This gives more realistic costs that scale better with plant size
-    
-    for component, coeff in building_coeffs.items():
-        # Apply economy of scale (larger plants are more cost-efficient per MW)
-        scale_factor = (PET / 1000) ** BUILDING_SCALE_EXPONENT  # Normalize to 1000 MW reference
-        cost = coeff * scale_factor * 1000 * 1000  # Convert to dollars (coeff in thousands)
-        building_costs[component] = cost
-        building_total += cost
-    
-    # Building contingency
-    if noak:
-        building_contingency_rate = 0.15  # 15% for NOAK
-    else:
-        building_contingency_rate = 0.25  # 25% for FOAK
-    
-    building_contingency = building_total * building_contingency_rate
-    building_total_with_contingency = building_total + building_contingency
+    # Building contingency - 10% for FOAK, 5% minimum for NOAK
+    contingency_rate = 0.10 if not noak else MIN_DESIGN_CONTINGENCY  # dimensionless (contingency rate)
+    building_contingency = contingency_rate * building_base  # $ (contingency amount)
+    building_total = building_base + building_contingency  # $ (after contingency)
     
     # Pre-construction costs (Cost Category 10)
-    preconstruction_costs = {}
-    preconstruction_total = 0.0
+    preconstruction_costs = {}  # $
+    preconstruction_total = 0.0  # $
     
     # Land rights (special scaling with power)
-    NMOD = 1  # Number of modules (typically 1)
-    land_cost = np.sqrt(NMOD) * (
+    NMOD = 1  # dimensionless (number of modules)
+    land_cost = np.sqrt(NMOD) * (  # $ (dimensionless × MW/239 × 0.9 dimensionless)
         PNEUTRON / 239 * 0.9 + PNRL / 239 * 0.9
     )
-    preconstruction_costs["land_rights"] = land_cost
-    preconstruction_total += land_cost
+    preconstruction_costs["land_rights"] = land_cost  # $
+    preconstruction_total += land_cost  # $
     
     # Other pre-construction costs (fixed)
     for component, cost in ARPA_PRECONSTRUCTION_COEFFS.items():
         if component != "land_rights":
-            preconstruction_costs[component] = cost
-            preconstruction_total += cost
+            preconstruction_costs[component] = cost  # $
+            preconstruction_total += cost  # $
     
-    # Pre-construction contingency
-    preconstruction_contingency = preconstruction_total * building_contingency_rate
-    preconstruction_total_with_contingency = preconstruction_total + preconstruction_contingency
+    # Pre-construction contingency (10% for FOAK only)
+    if not noak:  # —
+        preconstruction_total *= 1.10  # $ ($ × 1.10 dimensionless for FOAK contingency)
+    
+    preconstruction_total_with_contingency = preconstruction_total  # $
     
     # Reactor equipment costs (placeholder - would need full radial build calculation)
-    # For now, use empirical scaling: ~40% of building costs for fusion systems
-    reactor_equipment_total = building_total * 0.40
+    reactor_equipment_total = building_base * REACTOR_EQUIP_TO_BUILDING  # $ ($ × dimensionless)
     
     # Total direct costs
-    total_direct = (building_total_with_contingency + 
+    total_direct = (building_total +  # $ ($ + $ + $)
                    preconstruction_total_with_contingency + 
                    reactor_equipment_total)
     
     # Indirect costs (engineering, construction management, etc.)
     # Typical 25-35% of direct costs
-    indirect_rate = 0.30
-    indirect_costs = total_direct * indirect_rate
+    indirect_rate = 0.30  # dimensionless
+    indirect_costs = total_direct * indirect_rate  # $ ($ × dimensionless)
     
     # Total construction cost
-    total_construction = total_direct + indirect_costs
+    total_construction = total_direct + indirect_costs  # $ ($ + $)
     
     # Interest during construction (IDC)
     # Simple approximation: construction_rate * years * total_construction / 2
-    construction_interest_rate = 0.06  # 6% typical
-    idc = construction_interest_rate * years * total_construction / 2
+    construction_interest_rate = 0.06  # 1/year (6% typical)
+    idc = construction_interest_rate * years * total_construction / 2  # $ (1/year × year × $ / dimensionless)
     
     # Owner's costs (development, permitting, etc.)
-    owners_costs = total_construction * 0.10  # 10% typical
+    owners_costs = total_construction * 0.10  # $ ($ × dimensionless)
     
     # Total EPC cost
-    total_epc = (total_construction + idc + owners_costs) * region_factor
+    total_epc = (total_construction + idc + owners_costs) * region_factor  # $ (($ + $ + $) × dimensionless)
     
     # Cost validation and warnings
-    cost_per_kw = total_epc / (net_mw * 1000)
-    building_cost_per_kw = building_total / (PET * 1000)
+    cost_per_kw = total_epc / (net_mw * 1000)  # $/kW ($ / (MW × 1000 kW/MW))
+    building_cost_per_kw = building_total / (PET * 1000)  # $/kW ($ / (MW × 1000 kW/MW))
     
     # Validate costs against industry benchmarks
     cost_warnings = []
@@ -336,8 +327,9 @@ def arpa_epc(net_mw: float, years: float, tech: str = "MFE",
     return {
         # Component breakdowns
         "building_costs": building_costs,
-        "building_total": building_total,
+        "building_base": building_base,
         "building_contingency": building_contingency,
+        "building_total": building_total,
         "preconstruction_costs": preconstruction_costs,
         "preconstruction_total": preconstruction_total,
         "reactor_equipment": reactor_equipment_total,
@@ -365,7 +357,7 @@ def arpa_epc(net_mw: float, years: float, tech: str = "MFE",
         "cost_per_kw": cost_per_kw,  # $/kW net
         "building_cost_per_kw": building_cost_per_kw,  # $/kW gross (for comparison)
         "cost_warnings": cost_warnings,
-        "realism_multiplier_used": realism_multiplier or BUILDING_REALISM_MULTIPLIER,
+        "realism_multiplier_used": realism_multiplier or 1.0,  # Default to 1.0 (no adjustment)
     }
 
 
@@ -387,12 +379,12 @@ def catf_epc(net_mw: float, pctl: float = 50, region_factor: float = 1.0) -> flo
         raise ValueError("Percentile must be 10, 50, or 90")
     
     # Get cost per kW from distribution
-    cost_per_kw = CATF_COST_DISTRIBUTION[f"P{int(pctl)}"]
+    cost_per_kw = CATF_COST_DISTRIBUTION[f"P{int(pctl)}"]  # $/kW
     
     # Calculate total cost
-    total_epc = cost_per_kw * net_mw * 1000 * region_factor  # Convert MW to kW
+    total_epc = cost_per_kw * net_mw * 1000 * region_factor  # $ ($/kW × MW × 1000 kW/MW × dimensionless)
     
-    return total_epc
+    return total_epc  # $
 
 
 def inverse_mw_from_epc(target_epc: float, years: float, 
@@ -564,3 +556,73 @@ if __name__ == "__main__":
         print(f"ARPA EPC: ${summary['arpa_epc_total']/1e9:.1f}B (${summary['arpa_cost_per_kw']:,.0f}/kW)")
         print(f"CATF P50: ${summary['catf_p50']/1e9:.1f}B (${summary['catf_p50_per_kw']:,.0f}/kW)")
         print(f"Gross/Net: {summary['gross_mw']:.0f}/{summary['net_mw']:.0f} MW")
+    
+    # Test building contingency calculation
+    print("\n" + "=" * 50)
+    print("Building Contingency Tests")
+    print("=" * 50)
+    
+    # Test FOAK (contingency = 10%)
+    foak_result = arpa_epc(1000, 6, noak=False)  # FOAK plant
+    building_base_foak = foak_result["building_base"]  # $
+    building_contingency_foak = foak_result["building_contingency"]  # $
+    building_total_foak = foak_result["building_total"]  # $
+    
+    print(f"\nFOAK (noak=False) - 1000 MW:")
+    print(f"  Building Base:        ${building_base_foak/1e6:.1f}M")
+    print(f"  Building Contingency: ${building_contingency_foak/1e6:.1f}M")
+    print(f"  Building Total:       ${building_total_foak/1e6:.1f}M")
+    print(f"  Contingency %:        {100 * building_contingency_foak / building_base_foak:.1f}%")
+    
+    # Test NOAK (contingency = 0%)
+    noak_result = arpa_epc(1000, 6, noak=True)  # NOAK plant
+    building_base_noak = noak_result["building_base"]  # $
+    building_contingency_noak = noak_result["building_contingency"]  # $
+    building_total_noak = noak_result["building_total"]  # $
+    
+    print(f"\nNOAK (noak=True) - 1000 MW:")
+    print(f"  Building Base:        ${building_base_noak/1e6:.1f}M")
+    print(f"  Building Contingency: ${building_contingency_noak/1e6:.1f}M")
+    print(f"  Building Total:       ${building_total_noak/1e6:.1f}M")
+    print(f"  Contingency %:        {100 * building_contingency_noak / building_base_noak:.1f}%")
+    
+    # Assert-style checks
+    print(f"\nValidation Checks:")
+    
+    # FOAK contingency should be exactly 10%
+    expected_foak_contingency = 0.10 * building_base_foak  # $
+    foak_contingency_correct = abs(building_contingency_foak - expected_foak_contingency) < 1.0  # $ (within $1)
+    print(f"  FOAK contingency = 10% of base: {'PASS' if foak_contingency_correct else 'FAIL'}")
+    
+    # FOAK total should equal base + contingency
+    foak_total_correct = abs(building_total_foak - (building_base_foak + building_contingency_foak)) < 1.0  # $ (within $1)
+    print(f"  FOAK total = base + contingency: {'PASS' if foak_total_correct else 'FAIL'}")
+    
+    # NOAK contingency should be exactly MIN_DESIGN_CONTINGENCY (5%)
+    expected_noak_contingency = MIN_DESIGN_CONTINGENCY * building_base_noak  # $
+    noak_contingency_correct = abs(building_contingency_noak - expected_noak_contingency) < 1.0  # $ (within $1)
+    print(f"  NOAK contingency = {MIN_DESIGN_CONTINGENCY*100:.0f}% of base: {'PASS' if noak_contingency_correct else 'FAIL'}")
+    
+    # NOAK total should equal base + contingency
+    noak_total_correct = abs(building_total_noak - (building_base_noak + building_contingency_noak)) < 1.0  # $ (within $1)
+    print(f"  NOAK total = base + contingency: {'PASS' if noak_total_correct else 'FAIL'}")
+    
+    # Building bases should be identical for same plant size
+    base_identical = abs(building_base_foak - building_base_noak) < 1e-6  # $ (essentially zero difference)
+    print(f"  FOAK and NOAK bases identical: {'PASS' if base_identical else 'FAIL'}")
+    
+    # Test cost threshold for 100 MW FOAK (should be $6,000-8,000/kW, not trigger $2,000/kW warning)
+    small_foak_result = arpa_epc(100, 6, noak=False)  # 100 MW FOAK plant
+    small_cost_per_kw = small_foak_result["cost_per_kw"]  # $/kW
+    cost_warnings_small = small_foak_result["cost_warnings"]  # list
+    low_cost_warning_triggered = any("below realistic fusion targets" in warning for warning in cost_warnings_small)  # boolean
+    cost_threshold_correct = not low_cost_warning_triggered and small_cost_per_kw >= 6000  # boolean (expect $6k-8k/kW)
+    print(f"  100 MW FOAK cost reasonable (${small_cost_per_kw:,.0f}/kW): {'PASS' if cost_threshold_correct else 'FAIL'}")
+    
+    all_tests_pass = all([foak_contingency_correct, foak_total_correct, noak_contingency_correct, 
+                         noak_total_correct, base_identical, cost_threshold_correct])
+    print(f"\nAll tests: {'PASS' if all_tests_pass else 'FAIL'}")
+    
+    if not all_tests_pass:
+        print("ERROR: Some contingency tests failed!")
+        exit(1)
