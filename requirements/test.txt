@@ -1,0 +1,25 @@
+# Core testing framework
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-xdist>=3.0.0  # Parallel testing
+pytest-timeout>=2.1.0  # Prevent hanging tests
+pytest-randomly>=3.12.0  # Randomized execution
+
+# Performance testing
+pytest-benchmark>=4.0.0
+memory-profiler>=0.60.0
+line-profiler>=4.0.0
+
+# Property-based testing
+hypothesis>=6.68.0
+
+# Data generation
+faker>=18.0.0
+
+# Load testing (optional for web deployment)
+locust>=2.14.0
+
+# Static analysis
+flake8>=6.0.0
+black>=23.0.0
+mypy>=1.0.0
