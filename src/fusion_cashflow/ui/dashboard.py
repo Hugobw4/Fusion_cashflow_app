@@ -360,6 +360,11 @@ def get_config_from_widgets(widgets):
             config[k] = w.value
         elif isinstance(w, Checkbox):
             config[k] = w.active
+    # Force manual EPC when benchmarking PWR, but allow user to adjust the amount
+    if config.get("power_method") == "PWR":
+        config["override_epc"] = True
+        # Use the widget value for total_epc_cost (don't hardcode it)
+        # This allows users to adjust PWR EPC cost via the slider
     return config
 
 
@@ -372,37 +377,54 @@ DEBOUNCE_DELAY = 0.8  # seconds
 def update_dashboard():
     config = get_config_from_widgets(widgets)
     
-    # Calculate auto-generated values for display
-    try:
-        # Import power_to_epc functions for auto calculations
-        from fusion_cashflow.core.power_to_epc import arpa_epc, get_regional_factor
-        from fusion_cashflow.core.q_model import estimate_q_eng
-        
-        net_mw = config["net_electric_power_mw"]
-        tech = config["power_method"]
-        location = config["project_location"]
-        years_construction = config["project_energy_start_year"] - config["construction_start_year"]
-        
-        # Calculate auto Q engineering
-        auto_q_eng = estimate_q_eng(net_mw, tech)
-        widgets["auto_q_eng_display"].text = f"<div style='margin-bottom:10px; color:#007aff; font-size:16px;'><b>Auto Q Engineering:</b> {auto_q_eng:.2f}</div>"
-        
-        # Calculate auto EPC cost
-        region_factor = get_regional_factor(location)
-        epc_result = arpa_epc(
-            net_mw=net_mw,
-            years=years_construction,
-            tech=tech,
-            region_factor=region_factor,
-            noak=True
-        )
-        auto_epc_cost = epc_result["total_epc_cost"]
-        auto_epc_per_kw = epc_result["cost_per_kw"]
-        widgets["auto_epc_display"].text = f"<div style='margin-bottom:10px; color:#007aff; font-size:16px;'><b>Auto EPC Cost:</b> ${auto_epc_cost/1e9:.2f}B (${auto_epc_per_kw:,.0f}/kW)</div>"
-        
-    except Exception as e:
-        widgets["auto_q_eng_display"].text = f"<div style='margin-bottom:10px; color:#ff3b30; font-size:16px;'><b>Auto Q Engineering:</b> Error: {str(e)[:50]}...</div>"
-        widgets["auto_epc_display"].text = f"<div style='margin-bottom:10px; color:#ff3b30; font-size:16px;'><b>Auto EPC Cost:</b> Error: {str(e)[:50]}...</div>"
+    # Skip fusion auto-calcs when benchmarking a fixed PWR plant
+    tech = config["power_method"]
+    if tech == "PWR":
+        widgets["auto_q_eng_display"].text = (
+            "<div style='margin-bottom:10px;color:#007aff;font-size:16px;'>"
+            "<b>Auto Q Engineering:</b> N/A (fixed benchmark)</div>")
+        # Show the actual EPC cost from the slider for PWR
+        actual_epc_cost = config["total_epc_cost"]
+        widgets["auto_epc_display"].text = (
+            "<div style='margin-bottom:10px;color:#007aff;font-size:16px;'>"
+            f"<b>Auto EPC Cost:</b> ${actual_epc_cost/1e9:.1f} B (manual override)</div>")
+    else:
+        # Calculate auto-generated values for display
+        try:
+            from fusion_cashflow.core.power_to_epc import arpa_epc, get_regional_factor
+            from fusion_cashflow.core.q_model import estimate_q_eng
+            
+            net_mw = config["net_electric_power_mw"]
+            location = config["project_location"]
+            years_construction = (
+                config["project_energy_start_year"] - config["construction_start_year"]
+            )
+            
+            # Auto Q (fusion only)
+            auto_q_eng = estimate_q_eng(net_mw, tech)
+            widgets["auto_q_eng_display"].text = (
+                f"<div style='margin-bottom:10px;color:#007aff;font-size:16px;'>"
+                f"<b>Auto Q Engineering:</b> {auto_q_eng:.2f}</div>")
+            
+            # Auto EPC (fusion only)
+            region_factor = get_regional_factor(location)
+            epc_result = arpa_epc(
+                net_mw=net_mw,
+                years=years_construction,
+                tech=tech,
+                region_factor=region_factor,
+                noak=True,
+            )
+            auto_epc_cost   = epc_result["total_epc_cost"]
+            auto_epc_per_kw = epc_result["cost_per_kw"]
+            widgets["auto_epc_display"].text = (
+                f"<div style='margin-bottom:10px;color:#007aff;font-size:16px;'>"
+                f"<b>Auto EPC Cost:</b> ${auto_epc_cost/1e9:.2f} B "
+                f"(${auto_epc_per_kw:,} / kW)</div>")
+                
+        except Exception as e:
+            widgets["auto_q_eng_display"].text = f"<div style='margin-bottom:10px; color:#ff3b30; font-size:16px;'><b>Auto Q Engineering:</b> Error: {str(e)[:50]}...</div>"
+            widgets["auto_epc_display"].text = f"<div style='margin-bottom:10px; color:#ff3b30; font-size:16px;'><b>Auto EPC Cost:</b> Error: {str(e)[:50]}...</div>"
     
     outputs = run_cashflow_scenario(config)
     highlight_div.text = render_highlight_facts(outputs)
@@ -530,6 +552,14 @@ def update_config_based_on_power_method(attr, old, new):
                 widget.value = value
             elif isinstance(widget, Checkbox):
                 widget.active = value
+    
+    # Special handling for PWR: force manual EPC override and make slider visible
+    if power_method == "PWR":
+        widgets["override_epc"].active = True
+        widgets["total_epc_cost"].visible = True
+    else:
+        # For fusion methods, respect the config's override_epc setting
+        widgets["total_epc_cost"].visible = widgets["override_epc"].active
     
     # Update years construction display
     years = widgets["project_energy_start_year"].value - widgets["construction_start_year"].value
