@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fusion-cashflow"
+version = "1.0.0"
+description = "Fusion Energy Financial Cashflow Modeling Engine"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "pandas",
+    "streamlit", 
+    "bokeh",
+    "scipy"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "hypothesis",
+    "memory-profiler", 
+    "psutil",
+    "faker"
+]
+test = [
+    "pytest",
+    "pytest-benchmark", 
+    "pytest-cov"
+]
+
+[project.scripts]
+fusion-cashflow = "fusion_cashflow.ui.app:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

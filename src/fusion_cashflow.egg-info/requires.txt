@@ -1,0 +1,17 @@
+numpy
+pandas
+streamlit
+bokeh
+scipy
+
+[dev]
+pytest
+hypothesis
+memory-profiler
+psutil
+faker
+
+[test]
+pytest
+pytest-benchmark
+pytest-cov
