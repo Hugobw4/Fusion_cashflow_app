@@ -22,15 +22,25 @@ cd fusion_cashflow_app
 
 2. **Create and activate a virtual environment** (recommended):
 ```bash
-python -m venv .venv
-# Windows
+# Windows - use py launcher if python -m venv fails
+py -m venv .venv
+
+# Activate virtual environment (Windows PowerShell)
+# If you get execution policy error, first run:
+# Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .venv\Scripts\activate
+
 # macOS/Linux
+python -m venv .venv
 source .venv/bin/activate
 ```
 
-3. **Install required packages**:
+3. **Install the package and dependencies**:
 ```bash
+# Install in development mode (required for package imports)
+pip install -e .
+
+# Install additional requirements
 pip install -r requirements.txt
 ```
 
@@ -41,7 +51,18 @@ pip install -r requirements.txt
 The main way to use the application is through the interactive Bokeh dashboard:
 
 ```bash
+# Option 1: Using the installed package (after pip install -e .)
 python -m bokeh serve src\fusion_cashflow\ui\dashboard.py --show
+
+# Option 2: If imports fail, set PYTHONPATH first (PowerShell)
+$env:PYTHONPATH="$env:PYTHONPATH;src"
+python -m bokeh serve src\fusion_cashflow\ui\dashboard.py --show
+
+# Option 3: One-liner with PYTHONPATH (PowerShell)
+$env:PYTHONPATH="src"; python -m bokeh serve src\fusion_cashflow\ui\dashboard.py --show
+
+# Option 4: Alternative using relative imports (if above don't work)
+python -m bokeh serve --allow-websocket-origin=localhost:5006 src\fusion_cashflow\ui\dashboard.py --show
 ```
 
 This opens a browser window with:

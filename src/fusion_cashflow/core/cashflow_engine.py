@@ -23,7 +23,7 @@ try:
     import sys
     import os
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-    from power_to_epc import arpa_epc, get_regional_factor
+    from power_to_epc import arpa_epc, get_regional_factor, compute_epc
     POWER_TO_EPC_AVAILABLE = True
 except ImportError:
     POWER_TO_EPC_AVAILABLE = False
@@ -449,10 +449,60 @@ def get_pwr_config():
     }
 
 
+def get_ife_config():
+    """Return default configuration for IFE (Inertial Fusion Energy) - NIF-inspired baseline."""
+    construction_start_year = 2025
+    project_energy_start_year = 2038
+    years_construction = project_energy_start_year - construction_start_year  
+    return {
+        "project_name": "IFE Commercial Plant",
+        "project_location": "United States",
+        "construction_start_year": construction_start_year,
+        "years_construction": years_construction,  # Always numeric, so included in sensitivity
+        "project_energy_start_year": project_energy_start_year,
+        "plant_lifetime": 30,
+        "power_method": "IFE",
+        "net_electric_power_mw": 1000,
+        "capacity_factor": 0.85,  # Slightly lower than MFE due to laser maintenance
+        "fuel_type": "Tritium",
+        "input_debt_pct": 0.70,
+        "cost_of_debt": 0.06,  # Slightly higher risk than MFE
+        "loan_rate": 0.06,
+        "financing_fee": 0.02,
+        "repayment_term_years": 20,
+        "grace_period_years": 3,
+        "total_epc_cost": 15000000000,  # Estimated higher than MFE due to laser systems
+        "override_epc": False,  # Use auto-generation for IFE
+        "override_q_eng": False,
+        "manual_q_eng": 3.5,  # Slightly lower Q than MFE
+        "extra_capex_pct": 0.08,  # Higher contingency for laser systems
+        "project_contingency_pct": 0.18,
+        "process_contingency_pct": 0.22,
+        "fixed_om_per_mw": 75000,  # Higher O&M due to laser maintenance
+        "variable_om": 3.2,
+        "electricity_price": 100,
+        "dep_years": 20,
+        "salvage_value": 8000000,
+        "decommissioning_cost": 950000000,
+        "use_real_dollars": False,
+        "price_escalation_active": True,
+        "escalation_rate": 0.02,
+        "include_fuel_cost": True,
+        "apply_tax_model": True,
+        "ramp_up": True,
+        "ramp_up_years": 2,
+        "ramp_up_rate_per_year": 0.5,
+        # IFE-specific parameters
+        "impfreq": 1.0,  # Implosion frequency in Hz
+    }
+
+
 def get_default_config_by_power_method(power_method):
     """Return appropriate default configuration based on power method."""
-    if power_method == "MFE" or power_method == "IFE":
+    if power_method == "MFE":
         return get_mfe_config()
+    elif power_method == "IFE":
+        return get_ife_config()
     elif power_method == "PWR":
         return get_pwr_config()
     else:
@@ -521,20 +571,32 @@ def run_cashflow_scenario(config):
         # Use manual EPC cost from config
         total_epc_cost = config["total_epc_cost"]
     else:
-        # Auto-generate EPC cost from power using ARPA-E scaling
+        # Auto-generate EPC cost from power using dispatcher
         try:
             region_factor = get_regional_factor(config["project_location"])
-            epc_result = arpa_epc(
-                net_mw=net_electric_power_mw,
-                years=years_construction,
-                tech=power_method,
-                region_factor=region_factor,
-                noak=True  # Assume NOAK for cost optimization
-            )
-            total_epc_cost = epc_result["total_epc_cost"]
             
-            # Store EPC breakdown for analysis
-            config["_epc_breakdown"] = epc_result
+            # Use the new dispatcher function to handle different power methods
+            epc_cfg = {
+                "net_mw": net_electric_power_mw,
+                "years": years_construction,
+                "region_factor": region_factor,
+                "noak": True,  # Assume NOAK for cost optimization
+                "fuel_type": fuel_type,  # Pass fuel type for IFE
+                "impfreq": config.get("impfreq", 1.0),  # Implosion frequency for IFE
+            }
+            
+            # Call dispatcher based on power method
+            epc_result = compute_epc(power_method, epc_cfg)
+            total_epc_cost = epc_result["total_epc"]
+            
+            # Store EPC breakdown for analysis (convert to original format for compatibility)
+            config["_epc_breakdown"] = {
+                "total_epc_cost": epc_result["total_epc"],
+                "cost_per_kw": epc_result["epc_per_kw"],
+                "breakdown": epc_result["breakdown"],
+                "power_balance": epc_result.get("power_balance", {}),
+                "method": power_method,
+            }
             
         except Exception as e:
             # Fallback to manual EPC if auto-generation fails

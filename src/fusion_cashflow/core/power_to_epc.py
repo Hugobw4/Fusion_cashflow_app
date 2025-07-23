@@ -7,6 +7,7 @@ and Engineering-Procurement-Construction (EPC) costs for fusion energy systems.
 
 Contains:
 - ARPA-E MFE scaling relationships from PyCosting
+- ARPA-E IFE scaling relationships from PyCosting
 - CATF cost distributions with percentile sampling
 - Inverse functions for EPC-driven design optimization
 
@@ -16,6 +17,8 @@ import numpy as np
 from functools import lru_cache
 from typing import Dict, Union, Optional
 import warnings
+import os
+import math
 
 # Suppress ARPA-E cost warnings globally
 warnings.filterwarnings("ignore", message="ARPA-E Cost Warning*")
@@ -32,10 +35,63 @@ except ImportError:
 # ARPA-E MFE Cost Coefficients
 # =============================
 
+# Materials database for both MFE and IFE calculations
+MATERIALS = {
+    "FS": {"rho": 7470, "c_raw": 10, "m": 3, "sigma": 450},
+    "Pb": {"rho": 9400, "c_raw": 2.4, "m": 1.5},
+    "Li4SiO4": {"rho": 2390, "c_raw": 1, "m": 2},
+    "FLiBe": {"rho": 1900, "c": 40},
+    "W": {"rho": 19300, "c_raw": 100, "m": 3},
+    "Li": {"rho": 534, "c_raw": 70, "m": 1.5},
+    "BFS": {"rho": 7800, "c_raw": 30, "m": 2},
+    "PbLi": {"rho": None, "c": None},
+    "SiC": {"rho": 3200, "c_raw": 14.49, "m": 3},
+    "Inconel": {"rho": 8440, "c_raw": 46, "m": 3},
+    "Cu": {"rho": 7300, "c_raw": 10.2, "m": 3},
+    "Polyimide": {"rho": 1430, "c_raw": 100, "m": 3},
+    "YBCO": {"rho": 6200, "c": 55},
+    "Concrete": {"rho": 2300, "c_raw": 13/25, "m": 2},
+    "SS316": {"rho": 7860, "c_raw": 2, "m": 2, "sigma": 900},
+    "Nb3Sn": {"c": 5},
+    "Incoloy": {"rho": 8170, "c_raw": 4, "m": 2},
+    "GdBCO": {},
+    "He": {},
+    "NbTi": {},
+    "Be": {"rho": 1850, "c_raw": 5750.00, "m": 3},
+    "Li2TiO3": {"rho": 3430, "c_raw": 1297.05, "m": 3},
+}
+
+# Initialize PbLi material properties
+pblir = 10
+MATERIALS["PbLi"]["rho"] = (MATERIALS["Pb"]["rho"] * pblir + MATERIALS["Li"]["rho"]) / (pblir + 1)
+MATERIALS["PbLi"]["c"] = (MATERIALS["Pb"]["c_raw"] * MATERIALS["Pb"]["m"] * pblir + MATERIALS["Li"]["c_raw"] * MATERIALS["Li"]["m"]) / (pblir + 1)
+
 # Building cost coefficients from ARPA-E MFE study
 # From pycosting_arpa_e_mfe.py Cost Category 21: Buildings
 # Coefficients are in 2019 $/kW gross. Multiply by gross_power_kw.
 ARPA_BUILDING_COEFFS_RAW = {
+    "site_improvements": 268,            # C210100: $/kW 
+    "fusion_heat_island": 186.8,         # C210200: $/kW 
+    "turbine_building": 54.0,            # C210300: $/kW
+    "heat_exchanger": 37.8,              # C210400: $/kW
+    "power_supply": 10.8,                # C210500: $/kW
+    "reactor_auxiliaries": 5.4,          # C210600: $/kW
+    "hot_cell": 93.4,                    # C210700: $/kW 
+    "reactor_services": 18.7,            # C210800: $/kW
+    "service_water": 0.3,                # C210900: $/kW
+    "fuel_storage": 1.1,                 # C211000: $/kW
+    "control_room": 0.9,                 # C211100: $/kW
+    "onsite_ac_power": 0.8,              # C211200: $/kW
+    "administration": 4.4,               # C211300: $/kW
+    "site_services": 1.6,                # C211400: $/kW
+    "cryogenics": 2.4,                   # C211500: $/kW
+    "security": 0.9,                     # C211600: $/kW
+    "ventilation_stack": 27.0,           # C211700: $/kW
+}
+
+# IFE-specific building coefficients (from pycosting_arpa_e_ife.py)
+# Coefficients are in 2019 $/kW gross for IFE systems
+ARPA_IFE_BUILDING_COEFFS_RAW = {
     "site_improvements": 268,            # C210100: $/kW 
     "fusion_heat_island": 186.8,         # C210200: $/kW 
     "turbine_building": 54.0,            # C210300: $/kW
@@ -203,6 +259,199 @@ def _calculate_fusion_power_balance(net_mw: float, tech: str = "MFE") -> Dict[st
     }
 
 
+# =============================
+# Main Dispatcher Function
+# =============================
+
+def compute_epc(method: str, cfg: dict) -> Dict[str, float]:
+    """
+    Main dispatcher for EPC cost calculation.
+    
+    Args:
+        method: Technology method ("MFE", "IFE", or "PWR")
+        cfg: Configuration dictionary with required parameters
+        
+    Returns:
+        Dictionary with EPC cost breakdown and totals
+    """
+    EPCRUNNERS = {
+        "MFE": compute_mfe_epc,
+        "IFE": compute_ife_epc, 
+        "PWR": compute_pwr_epc,
+    }
+    
+    if method not in EPCRUNNERS:
+        raise ValueError(f"Unsupported method '{method}'. Available: {list(EPCRUNNERS.keys())}")
+    
+    return EPCRUNNERS[method](cfg)
+
+
+def compute_mfe_epc(cfg: dict) -> Dict[str, float]:
+    """
+    Compute MFE EPC costs using existing ARPA-E MFE methodology.
+    
+    Args:
+        cfg: Configuration dictionary with keys:
+            - net_mw: Net electric power in MW
+            - years: Construction years
+            - region_factor: Regional cost adjustment (default 1.0)
+            - noak: NOAK flag (default True)
+            - realism_multiplier: Cost realism adjustment (optional)
+            
+    Returns:
+        Dictionary with EPC cost breakdown matching original arpa_epc format
+    """
+    # Extract parameters with defaults
+    net_mw = cfg.get("net_mw", 1000)
+    years = cfg.get("years", 6)
+    region_factor = cfg.get("region_factor", 1.0)
+    noak = cfg.get("noak", True)
+    realism_multiplier = cfg.get("realism_multiplier", None)
+    
+    # Call existing MFE logic
+    result = arpa_epc(net_mw, years, tech="MFE", region_factor=region_factor, 
+                     noak=noak, realism_multiplier=realism_multiplier)
+    
+    # Ensure consistent output format
+    return {
+        "total_epc": result["total_epc_cost"],
+        "epc_per_kw": result["cost_per_kw"],
+        "breakdown": {
+            "building_total": result["building_total"],
+            "preconstruction_total": result["preconstruction_total"],
+            "reactor_equipment": result["reactor_equipment"],
+            "indirect_costs": result["indirect_costs"],
+            "idc": result["idc"],
+            "owners_costs": result["owners_costs"],
+        },
+        "power_balance": result["power_balance"],
+        "detailed_result": result,  # Full original result for backward compatibility
+    }
+
+
+def compute_ife_epc(cfg: dict) -> Dict[str, float]:
+    """
+    Compute IFE EPC costs using ARPA-E IFE methodology from pycosting_arpa_e_ife.py.
+    
+    Args:
+        cfg: Configuration dictionary with keys:
+            - net_mw: Net electric power in MW
+            - years: Construction years
+            - region_factor: Regional cost adjustment (default 1.0)
+            - noak: NOAK flag (default True)
+            - fuel_type: Fuel type (default "DT")
+            - impfreq: Implosion frequency in Hz (default 1)
+            
+    Returns:
+        Dictionary with EPC cost breakdown matching MFE format
+    """
+    # Extract parameters with defaults
+    net_mw = cfg.get("net_mw", 1000)
+    years = cfg.get("years", 6)
+    region_factor = cfg.get("region_factor", 1.0)
+    noak = cfg.get("noak", True)
+    fuel_type = cfg.get("fuel_type", "DT")
+    impfreq = cfg.get("impfreq", 1.0)  # Hz
+    
+    # IFE-specific power balance calculation
+    power_balance = _calculate_ife_power_balance(net_mw, fuel_type, impfreq)
+    
+    # IFE reactor geometry and radial build
+    geometry = _calculate_ife_geometry()
+    
+    # Building costs using IFE coefficients
+    building_result = _calculate_ife_building_costs(power_balance["PET"], noak)
+    
+    # Pre-construction costs (similar to MFE but with IFE adjustments)
+    preconstruction_result = _calculate_ife_preconstruction_costs(
+        power_balance["PNEUTRON"], power_balance["PNRL"], noak
+    )
+    
+    # Reactor equipment costs (IFE-specific with spherical geometry)
+    reactor_equipment_result = _calculate_ife_reactor_equipment_costs(geometry, power_balance)
+    
+    # Shield costs (IFE-specific)
+    shield_result = _calculate_ife_shield_costs(geometry)
+    
+    # Laser and target factory costs (IFE-specific)
+    laser_result = _calculate_ife_laser_costs(power_balance, impfreq)
+    target_factory_result = _calculate_ife_target_factory_costs(impfreq)
+    
+    # Total direct costs
+    total_direct = (building_result["total"] + 
+                   preconstruction_result["total"] + 
+                   reactor_equipment_result["total"] +
+                   shield_result["total"] +
+                   laser_result["total"] +
+                   target_factory_result["total"])
+    
+    # Indirect costs (30% of direct for IFE)
+    indirect_rate = 0.30
+    indirect_costs = total_direct * indirect_rate
+    
+    # Total construction cost
+    total_construction = total_direct + indirect_costs
+    
+    # Interest during construction
+    construction_interest_rate = 0.06
+    idc = construction_interest_rate * years * total_construction / 2
+    
+    # Owner's costs
+    owners_costs = total_construction * 0.10
+    
+    # Total EPC cost
+    total_epc = (total_construction + idc + owners_costs) * region_factor
+    
+    # Cost per kW
+    epc_per_kw = total_epc / (net_mw * 1000)
+    
+    return {
+        "total_epc": total_epc,
+        "epc_per_kw": epc_per_kw,
+        "breakdown": {
+            "building_total": building_result["total"],
+            "preconstruction_total": preconstruction_result["total"],
+            "reactor_equipment": reactor_equipment_result["total"],
+            "shield_costs": shield_result["total"],
+            "laser_costs": laser_result["total"],
+            "target_factory": target_factory_result["total"],
+            "indirect_costs": indirect_costs,
+            "idc": idc,
+            "owners_costs": owners_costs,
+        },
+        "power_balance": power_balance,
+        "geometry": geometry,
+    }
+
+
+def compute_pwr_epc(cfg: dict) -> Dict[str, float]:
+    """
+    Placeholder for PWR EPC cost calculation.
+    
+    Args:
+        cfg: Configuration dictionary
+        
+    Returns:
+        Dictionary with EPC cost breakdown
+    """
+    net_mw = cfg.get("net_mw", 1000)
+    
+    # Simple PWR cost estimate based on industry benchmarks
+    cost_per_kw = 6000  # $/kW typical for PWR
+    total_epc = cost_per_kw * net_mw * 1000
+    
+    return {
+        "total_epc": total_epc,
+        "epc_per_kw": cost_per_kw,
+        "breakdown": {
+            "nuclear_island": total_epc * 0.40,
+            "turbine_island": total_epc * 0.25,
+            "balance_of_plant": total_epc * 0.35,
+        },
+        "power_balance": {"net_mw": net_mw, "gross_mw": net_mw * 1.08},
+    }
+
+
 def arpa_epc(net_mw: float, years: float, tech: str = "MFE", 
              region_factor: float = 1.0, noak: bool = True, 
              realism_multiplier: Optional[float] = None) -> Dict[str, float]:
@@ -364,6 +613,299 @@ def arpa_epc(net_mw: float, years: float, tech: str = "MFE",
         "building_cost_per_kw": building_cost_per_kw,  # $/kW gross (for comparison)
         "cost_warnings": cost_warnings,
         "realism_multiplier_used": realism_multiplier or 1.0,  # Default to 1.0 (no adjustment)
+    }
+
+
+# =============================
+# IFE-Specific Helper Functions
+# =============================
+
+def _calculate_ife_power_balance(net_mw: float, fuel_type: str = "DT", impfreq: float = 1.0) -> Dict[str, float]:
+    """
+    Calculate IFE power balance from net electric power.
+    
+    Based on power balance from pycosting_arpa_e_ife.py with laser-specific parameters.
+    """
+    # IFE-specific power parameters
+    if fuel_type == "pB11" or fuel_type == "DD":
+        PNRL = 2500  # MW
+        PALPHA = 0   # MW (no alpha for aneutronic)
+        PNEUTRON = PNRL  # MW
+    else:  # DT fuel
+        # Calculate based on net power requirement
+        PNRL = net_mw * 2.8  # MW (rough scaling from net to fusion power for IFE)  
+        PALPHA = 520  # MW (DT alpha power)
+        PNEUTRON = PNRL - PALPHA  # MW
+    
+    # IFE parameters from pycosting_arpa_e_ife.py
+    MN = 1.09  # Neutron energy multiplier
+    ETAP = 0.5  # Pumping power capture efficiency
+    FPCPPF = 0.01  # Primary Coolant Pumping Power Fraction
+    FSUB = 0.01  # Subsystem and Control Fraction
+    PTRIT = 6.3  # MW (Tritium Systems)
+    PHOUSE = 4 * 300 / 560  # MW (Housekeeping power)
+    PAUX = PTRIT + PHOUSE  # MW
+    PCRYO = 0.8 * PNRL / 560  # MW (Cryo vacuum pumping)
+    
+    # Input power wall plug efficiency
+    ETAPIN1 = 0.1  # Implosion laser efficiency
+    ETAPIN2 = 0.1  # Ignition laser efficiency
+    ETATH = 0.46  # Thermal conversion efficiency
+    
+    # Laser powers
+    PIMPLOSION = 10  # MW (Implosion laser power)
+    PIGNITION = 0.1  # MW (Ignition laser power)
+    PIN = PIMPLOSION + PIGNITION  # MW (Total input power)
+    
+    # Power into systems
+    PTARGET = 1  # MW (Target factory)
+    PMACHINERY = 1  # MW (Machinery)
+    
+    # Thermal power
+    PTH = MN * PNEUTRON + PALPHA + PIN + ETATH * (FPCPPF * ETAP + FSUB) * (MN * PNEUTRON + PALPHA)
+    
+    # Total (Gross) Electric Power
+    PET = ETATH * PTH  # MW
+    
+    # Primary Coolant Pumping Power
+    PP = FPCPPF * PET  # MW
+    
+    # Subsystem and Control Power
+    PSUB = FSUB * PET  # MW
+    
+    # Scientific Q
+    QS = PNRL / PIN  # dimensionless
+    
+    # Engineering Q
+    QE = ETATH * (MN * PNEUTRON + PALPHA + PP + PIN) / (
+        PTARGET + PP + PSUB + PAUX + PCRYO + PIMPLOSION / ETAPIN1 + PIGNITION / ETAPIN2
+    )
+    
+    # Output Power (Net Electric Power)
+    PNET = (1 - 1 / QE) * PET  # MW
+    
+    return {
+        "PNRL": PNRL,
+        "PET": PET,
+        "PNET": PNET,
+        "PNEUTRON": PNEUTRON,
+        "PALPHA": PALPHA,
+        "PTH": PTH,
+        "QS": QS,
+        "QE": QE,
+        "PIN": PIN,
+        "PIMPLOSION": PIMPLOSION,
+        "PIGNITION": PIGNITION,
+        "PTARGET": PTARGET,
+    }
+
+
+def _calculate_ife_geometry() -> Dict[str, float]:
+    """
+    Calculate IFE reactor geometry based on spherical chamber design.
+    
+    From pycosting_arpa_e_ife.py radial build calculations.
+    """
+    # Radial build inputs (spherical geometry)
+    radial_build = {
+        "axis_t": 0,       # m
+        "plasma_t": 0.0001,  # m  
+        "vacuum_t": 8.48,   # m (large vacuum chamber for IFE)
+        "firstwall_t": 0.005,  # m
+        "blanket1_t": 0,    # m 
+        "reflector_t": 0.1,  # m
+        "ht_shield_t": 0.1,  # m
+        "structure_t": 0.2,  # m
+        "gap1_t": 0.5,      # m
+        "vessel_t": 0.2,    # m
+        "gap2_t": 0.5,      # m
+        "lt_shield_t": 0.3,  # m
+        "bioshield_t": 1,   # m
+    }
+    
+    # Calculate inner and outer radii
+    components = ["axis", "plasma", "vacuum", "firstwall", "blanket1", "reflector", 
+                 "ht_shield", "structure", "gap1", "vessel", "lt_shield", "gap2", "bioshield"]
+    
+    geometry = {}
+    current_radius = 0
+    
+    for component in components:
+        thickness = radial_build[f"{component}_t"]
+        inner_radius = current_radius
+        outer_radius = current_radius + thickness
+        
+        # Volume for sphere: (4/3) * π * (r_out³ - r_in³)
+        volume = (4/3) * math.pi * (outer_radius**3 - inner_radius**3)
+        
+        geometry[component] = {
+            "thickness": thickness,
+            "inner_radius": inner_radius,
+            "outer_radius": outer_radius,
+            "volume": volume,
+        }
+        
+        current_radius = outer_radius
+    
+    return geometry
+
+
+def _calculate_ife_building_costs(gross_power_mw: float, noak: bool = True) -> Dict[str, float]:
+    """Calculate IFE building costs using IFE-specific coefficients."""
+    gross_power_kw = gross_power_mw * 1000
+    
+    # Use IFE building coefficients
+    building_costs = {
+        k: coeff * (gross_power_kw / REF_KW) ** BUILDING_SCALE_EXPONENT * gross_power_kw
+        for k, coeff in ARPA_IFE_BUILDING_COEFFS_RAW.items()
+    }
+    
+    building_base = sum(building_costs.values())
+    
+    # Contingency
+    contingency_rate = 0.10 if not noak else MIN_DESIGN_CONTINGENCY
+    building_contingency = contingency_rate * building_base
+    building_total = building_base + building_contingency
+    
+    return {
+        "costs": building_costs,
+        "base": building_base,
+        "contingency": building_contingency,
+        "total": building_total,
+    }
+
+
+def _calculate_ife_preconstruction_costs(pneutron: float, pnrl: float, noak: bool = True) -> Dict[str, float]:
+    """Calculate IFE pre-construction costs."""
+    preconstruction_costs = {}
+    preconstruction_total = 0.0
+    
+    # Land rights (special scaling with power)
+    NMOD = 1
+    land_cost = np.sqrt(NMOD) * (pneutron / 239 * 0.9 + pnrl / 239 * 0.9)
+    preconstruction_costs["land_rights"] = land_cost
+    preconstruction_total += land_cost
+    
+    # Other pre-construction costs (fixed)
+    for component, cost in ARPA_PRECONSTRUCTION_COEFFS.items():
+        if component != "land_rights":
+            preconstruction_costs[component] = cost
+            preconstruction_total += cost
+    
+    # Pre-construction contingency (10% for FOAK only)
+    if not noak:
+        preconstruction_total *= 1.10
+    
+    return {
+        "costs": preconstruction_costs,
+        "total": preconstruction_total,
+    }
+
+
+def _calculate_ife_reactor_equipment_costs(geometry: Dict, power_balance: Dict) -> Dict[str, float]:
+    """
+    Calculate IFE reactor equipment costs including first wall, blanket, and sphere-specific components.
+    """
+    # First wall costs based on material choice
+    firstwall_vol = geometry["firstwall"]["volume"]  # m³
+    
+    # Assume liquid lithium first wall for IFE
+    firstwall_material = "Li"
+    C22010101 = (firstwall_vol * MATERIALS[firstwall_material]["rho"] * 
+                 MATERIALS[firstwall_material]["c_raw"] * MATERIALS[firstwall_material]["m"] / 1e6)
+    
+    # Blanket costs (assume solid first wall, no breeder for aneutronic)
+    blanket_vol = geometry["blanket1"]["volume"]  # m³
+    C22010102 = blanket_vol * 100  # Simplified blanket cost $/m³
+    
+    # Total first wall and blanket
+    C220101 = C22010101 + C22010102
+    
+    # Multiply by reactor scaling factor
+    reactor_equipment_total = C220101 * REACTOR_EQUIP_TO_BUILDING
+    
+    return {
+        "firstwall": C22010101,
+        "blanket": C22010102,
+        "firstwall_blanket": C220101,
+        "total": reactor_equipment_total,
+    }
+
+
+def _calculate_ife_shield_costs(geometry: Dict) -> Dict[str, float]:
+    """Calculate IFE shield costs for HT shield, LT shield, and bioshield."""
+    # HT Shield
+    f_SiC = 0.00
+    f_PbLi = 0.1  
+    f_W = 0.00
+    f_BFS = 0.9
+    
+    V_HTS = geometry["ht_shield"]["volume"]
+    C_HTS = V_HTS * (
+        MATERIALS["SiC"]["rho"] * MATERIALS["SiC"]["c_raw"] * MATERIALS["SiC"]["m"] * f_SiC +
+        MATERIALS["PbLi"]["rho"] * MATERIALS["PbLi"]["c"] * f_PbLi +
+        MATERIALS["W"]["rho"] * MATERIALS["W"]["c_raw"] * MATERIALS["W"]["m"] * f_W +
+        MATERIALS["BFS"]["rho"] * MATERIALS["BFS"]["c_raw"] * MATERIALS["BFS"]["m"] * f_BFS
+    ) / 1e6
+    
+    C22010201 = C_HTS * 5  # HT shield with multiplier
+    
+    # LT Shield
+    lt_shield_vol = geometry["lt_shield"]["volume"]
+    C22010202 = lt_shield_vol * MATERIALS["SS316"]["c_raw"] * MATERIALS["SS316"]["m"] / 1e3
+    
+    # Bioshield
+    bioshield_vol = geometry["bioshield"]["volume"]
+    C22010203 = bioshield_vol * MATERIALS["Concrete"]["c_raw"] * MATERIALS["Concrete"]["m"] / 1e3
+    C22010204 = C22010203 * 0.1  # Additional bioshield costs
+    
+    C220102 = C22010201 + C22010202 + C22010203 + C22010204
+    
+    return {
+        "ht_shield": C22010201,
+        "lt_shield": C22010202,
+        "bioshield_base": C22010203,
+        "bioshield_additional": C22010204,
+        "total": C220102,
+    }
+
+
+def _calculate_ife_laser_costs(power_balance: Dict, impfreq: float) -> Dict[str, float]:
+    """Calculate IFE laser system costs including driver and ignition lasers."""
+    # Laser costs based on power requirements
+    # Simplified cost model: $1M/MW for laser systems
+    laser_power_cost_rate = 1_000_000  # $/MW
+    
+    implosion_cost = power_balance["PIMPLOSION"] * laser_power_cost_rate
+    ignition_cost = power_balance["PIGNITION"] * laser_power_cost_rate
+    
+    # Frequency scaling for repetition rate equipment
+    frequency_scaling = max(1.0, impfreq / 1.0)  # Scale costs with frequency above 1 Hz
+    
+    total_laser_cost = (implosion_cost + ignition_cost) * frequency_scaling
+    
+    return {
+        "implosion_laser": implosion_cost * frequency_scaling,
+        "ignition_laser": ignition_cost * frequency_scaling,
+        "total": total_laser_cost,
+    }
+
+
+def _calculate_ife_target_factory_costs(impfreq: float) -> Dict[str, float]:
+    """Calculate IFE target factory costs based on repetition rate."""
+    # Target factory cost scales with required production rate
+    # Base cost for 1 Hz operation: $50M
+    base_target_factory_cost = 50_000_000  # $
+    
+    # Scale with frequency (more targets per second = more production capacity needed)
+    frequency_scaling = max(1.0, math.sqrt(impfreq))  # Square root scaling
+    
+    target_factory_cost = base_target_factory_cost * frequency_scaling
+    
+    return {
+        "base_factory": base_target_factory_cost,
+        "frequency_scaling": frequency_scaling,
+        "total": target_factory_cost,
     }
 
 
