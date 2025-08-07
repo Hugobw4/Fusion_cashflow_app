@@ -31,9 +31,9 @@ def main():
     # Check if logo exists
     logo_path = os.path.join(static_path, "logo.png")
     if os.path.exists(logo_path):
-        print(f"✅ Logo found at: {logo_path}")
+        print(f"Logo found at: {logo_path}")
     else:
-        print(f"❌ Logo not found at: {logo_path}")
+        print(f"Logo not found at: {logo_path}")
         return
     
     # Create the Bokeh server with static file serving
@@ -47,21 +47,27 @@ def main():
         handler = ScriptHandler(filename=os.path.join(dashboard_path, "dashboard.py"))
         app = Application(handler)
         
-        # Create server with custom static file handler to avoid conflicts
+        # Create server with custom static file handler
+        # Get port from environment variable (Render sets PORT automatically)
+        port = int(os.environ.get('PORT', 5011))
+        
         server = Server({'/dashboard': app}, 
-                       port=5011,
-                       allow_websocket_origin=["localhost:5011"],
+                       port=port,
+                       allow_websocket_origin=["*"],
                        extra_patterns=[
-                           # Serve our assets at /assets/ to avoid conflicts with Bokeh's /static/
                            (r"/assets/(.*)", StaticFileHandler, {"path": static_path}),
                        ])
         
-        print("✅ Starting Bokeh server with static file serving...")
-        print("📂 Static files served from:", static_path, "at /assets/")
-        print("🌐 Dashboard URL: http://localhost:5011/dashboard")
+        print("Starting Bokeh server with static file serving...")
+        print("Static files served from:", static_path, "at /assets/")
+        print(f"Dashboard URL: http://localhost:{port}/dashboard")
         
         server.start()
-        server.io_loop.add_callback(server.show, "/dashboard")
+        # Don't auto-open browser in production
+        if os.environ.get('PORT'):
+            print("Production mode - server started")
+        else:
+            server.io_loop.add_callback(server.show, "/dashboard")
         server.io_loop.start()
         
     except KeyboardInterrupt:
