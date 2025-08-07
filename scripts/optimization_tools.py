@@ -37,14 +37,27 @@ from slugify import slugify
 try:
     from fusion_cashflow_app import cashflow_engine
 except ImportError:
-    from . import cashflow_engine
+    try:
+        from . import cashflow_engine
+    except ImportError:
+        # Try direct path import for standalone usage
+        import sys
+        import os
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        src_path = os.path.join(script_dir, '..', 'src')
+        sys.path.insert(0, os.path.abspath(src_path))
+        from fusion_cashflow.core import cashflow_engine
 
 # Import power-to-EPC module for EPC-driven optimization
 try:
     from power_to_epc import inverse_mw_from_epc, get_regional_factor
     POWER_TO_EPC_AVAILABLE = True
 except ImportError:
-    POWER_TO_EPC_AVAILABLE = False
+    try:
+        from fusion_cashflow.core.power_to_epc import inverse_mw_from_epc, get_regional_factor
+        POWER_TO_EPC_AVAILABLE = True
+    except ImportError:
+        POWER_TO_EPC_AVAILABLE = False
 
 # Set random seed for reproducibility
 np.random.seed(42)
@@ -90,7 +103,7 @@ def create_instrumentation(design_driver: str = "mw"):
             electricity_price=ng.p.Scalar(lower=70, upper=110),  # More realistic range
             net_electric_power_mw=ng.p.Scalar(lower=200, upper=5000),  # Larger plants for better economics
             capacity_factor=ng.p.Scalar(lower=0.90, upper=0.93),  # More conservative
-            input_debt_pct=ng.p.Scalar(lower=0.50, upper=0.80),  # More realistic debt levels
+            input_debt_pct=ng.p.Scalar(lower=0.20, upper=0.80),  # More realistic debt levels
             years_construction=ng.p.Scalar(lower=6, upper=12),  # More realistic construction time
             plant_lifetime=ng.p.Scalar(lower=25, upper=40),  # Standard plant life
         )
@@ -100,7 +113,7 @@ def create_instrumentation(design_driver: str = "mw"):
             total_epc_cost=ng.p.Scalar(lower=15.0e9, upper=35.0e9),  # Higher realistic range
             electricity_price=ng.p.Scalar(lower=70, upper=120),
             capacity_factor=ng.p.Scalar(lower=0.85, upper=0.93),
-            input_debt_pct=ng.p.Scalar(lower=0.50, upper=0.80),
+            input_debt_pct=ng.p.Scalar(lower=0.20, upper=0.80),
             years_construction=ng.p.Scalar(lower=6, upper=12),
             plant_lifetime=ng.p.Scalar(lower=25, upper=40),
         )

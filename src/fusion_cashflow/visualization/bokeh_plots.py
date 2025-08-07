@@ -825,7 +825,7 @@ def plot_sensitivity_heatmap(outputs, config, sensitivity_df):
     source = ColumnDataSource(heatmap_df)
     # Custom diverging palette: green to white to red, with white at the center
     from bokeh.palettes import RdYlGn
-    palette = RdYlGn[11]
+    palette = list(reversed(RdYlGn[11]))  # Reverse the palette so Green = positive, Red = negative
     # Optionally, to ensure mutability and avoid linter errors, do not modify the palette if it causes issues.
     # Symmetric color mapping: 0 always maps to white
     max_abs = max(abs(heatmap_df["ΔNPV"].min()), abs(heatmap_df["ΔNPV"].max()))
@@ -838,15 +838,19 @@ def plot_sensitivity_heatmap(outputs, config, sensitivity_df):
         x_range=FactorRange(*bands),
         y_range=FactorRange(*drivers[::-1]),
         x_axis_location="above",
-        width=1000,
-        height=350,
+        width=950,  # Optimized width to fit in container
+        height=300,  # Compact height
         tools="hover,save",
         toolbar_location="right",
+        sizing_mode="scale_width",  # Responsive scaling
         tooltips=[
             ("Driver", "@Driver"),
             ("Scenario", "@Scenario"),
-            ("ΔNPV", "@{ΔNPV}{$0,0}"),
-            ("ΔIRR", "@{ΔIRR}{0.000}"),
+            ("Band", "@Band"),
+            ("NPV", "$@{NPV}{0,0}"),
+            ("ΔNPV", "$@{ΔNPV}{0,0}"),
+            ("IRR", "@{IRR}{0.00%}"),
+            ("ΔIRR", "@{ΔIRR}{0.00%}"),
         ],
     )
     p.rect(
@@ -858,9 +862,9 @@ def plot_sensitivity_heatmap(outputs, config, sensitivity_df):
         line_color=None,
         fill_color=mapper,
     )
-    # Add NPV and IRR values as labels in each cell
+    # Add simplified ΔNPV values as labels in each cell
     heatmap_df["label"] = heatmap_df.apply(
-        lambda row: f"${row['NPV']/1e9:.1f}B, {row['IRR']*100:.1f}%", axis=1
+        lambda row: f"${row['ΔNPV']/1e9:.2f}B" if abs(row['ΔNPV']) >= 1e8 else f"${row['ΔNPV']/1e6:.0f}M", axis=1
     )
     from bokeh.models import LabelSet
     label_source = ColumnDataSource(heatmap_df)
@@ -871,14 +875,16 @@ def plot_sensitivity_heatmap(outputs, config, sensitivity_df):
         source=label_source,
         text_align="center",
         text_baseline="middle",
-        text_font_size="7pt"
+        text_font_size="8pt",  # Reduced font size for better fit
+        text_font_style="bold",  # Make text bold for better readability
+        text_color="black"  # Ensure good contrast
     )
     p.add_layout(labels)
     # Colorbar
     from bokeh.models import NumeralTickFormatter
     color_bar = ColorBar(
         color_mapper=mapper["transform"],
-        major_label_text_font_size="10pt",
+        major_label_text_font_size="8pt",  # Reduced colorbar font size
         ticker=BasicTicker(desired_num_ticks=7),
         formatter=NumeralTickFormatter(format="$0.0a"),
         label_standoff=8,
@@ -889,11 +895,274 @@ def plot_sensitivity_heatmap(outputs, config, sensitivity_df):
     # Axis polish
     p.xaxis.axis_label = "Scenario Band (%)"
     p.yaxis.axis_label = "Driver"
-    p.xaxis.major_label_orientation = 0.8
+    p.xaxis.major_label_orientation = 0  # Horizontal text for better readability
     p.grid.grid_line_color = None
     p.axis.axis_line_color = None
     p.axis.major_tick_line_color = None
-    p.axis.major_label_text_font_size = "12pt"
+    p.axis.major_label_text_font_size = "9pt"  # Reduced axis labels font size
     p.yaxis.major_label_text_font_size = "9pt"
+    p.title.text_font_size = "12pt"  # Reduced title font size
     p.outline_line_color = None
+    return p
+
+
+def plot_cashflow_sankey_plotly(outputs, config, width=800, height=500):
+    """
+    Create a clean, professional cash flow diagram.
+    
+    Args:
+        outputs (dict): Output from cashflow_engine.run_cashflow_scenario
+        config (dict): Model configuration
+        width (int): Chart width
+        height (int): Chart height
+    
+    Returns:
+        bokeh.plotting.Figure: Interactive Bokeh figure
+    """
+    from bokeh.plotting import figure
+    from bokeh.models import ColumnDataSource, HoverTool, LabelSet
+    import numpy as np
+    
+    # Extract key financial data
+    total_epc_cost = config["total_epc_cost"]
+    extra_capex = total_epc_cost * config["extra_capex_pct"]
+    project_contingency = total_epc_cost * config["project_contingency_pct"] 
+    process_contingency = total_epc_cost * config["process_contingency_pct"]
+    financing_fees = total_epc_cost * config["financing_fee"]
+    
+    # Total initial investment
+    total_investment = total_epc_cost + extra_capex + project_contingency + process_contingency + financing_fees
+    
+    # Lifetime totals
+    total_revenue = sum(outputs["revenue_vec"])
+    total_om = sum(outputs["om_vec"])
+    total_fuel = sum(outputs["fuel_vec"]) if "fuel_vec" in outputs else 0
+    total_interest = sum(outputs["interest_paid_vec"])
+    total_principal = sum(outputs["principal_paid_vec"])
+    total_taxes = sum(outputs["tax_vec"])
+    
+    # Calculate profit
+    total_expenses = total_om + total_fuel + total_interest + total_principal + total_taxes
+    total_profit = total_revenue - total_expenses
+    
+    # Format values in billions/millions
+    def format_value(val):
+        if val >= 1e9:
+            return f"${val/1e9:.1f}B"
+        elif val >= 1e6:
+            return f"${val/1e6:.0f}M"
+        else:
+            return f"${val/1e3:.0f}K"
+    
+    # Create the figure with clean styling
+    p = figure(
+        width=width, 
+        height=height,
+        title="Project Cash Flow Analysis",
+        toolbar_location=None,
+        x_range=(0, 10),
+        y_range=(0, 10),
+        background_fill_color="white"
+    )
+    
+    # Define professional color palette
+    colors = {
+        'investment': '#2980b9',      # Professional blue
+        'revenue': '#27ae60',         # Professional green  
+        'expenses': '#e74c3c',        # Professional red
+        'profit': '#00375b',          # Brand dark blue
+        'flow': '#7f8c8d',            # Professional gray
+        'text': '#34495e'             # Dark text
+    }
+    
+    # Investment components (left column)
+    investment_data = [
+        ("EPC Cost", total_epc_cost, 1.5, 8.0, 1.8, 1.2),
+        ("Additional CapEx", extra_capex, 1.5, 6.5, 1.8, 0.8),
+        ("Contingencies", project_contingency + process_contingency, 1.5, 5.2, 1.8, 0.8),
+        ("Financing Fees", financing_fees, 1.5, 3.9, 1.8, 0.6)
+    ]
+    
+    # Revenue (center)
+    revenue_data = [(total_revenue, 5, 6.5, 2.5, 2.0)]
+    
+    # Expenses (right column)
+    expense_data = [
+        ("O&M Costs", total_om, 8.5, 8.0, 1.8, 0.8),
+        ("Interest Payments", total_interest, 8.5, 6.8, 1.8, 0.8),
+        ("Principal Payments", total_principal, 8.5, 5.6, 1.8, 0.8),
+        ("Tax Payments", total_taxes, 8.5, 4.4, 1.8, 0.8),
+        ("Net Profit", total_profit, 8.5, 2.8, 1.8, 1.0)
+    ]
+    
+    # Draw investment boxes
+    inv_sources = []
+    for label, value, x, y, w, h in investment_data:
+        if value > 0:
+            # Draw rounded rectangle
+            p.rect(x=x, y=y, width=w, height=h, 
+                  color=colors['investment'], alpha=0.8, 
+                  line_color="white", line_width=2,
+                  line_alpha=1.0)
+            
+            # Add text
+            p.text([x], [y+0.15], text=[label], text_font_size='11pt',
+                  text_align='center', text_baseline='middle',
+                  text_color='white', text_font_style='bold')
+            p.text([x], [y-0.15], text=[format_value(value)], text_font_size='10pt',
+                  text_align='center', text_baseline='middle',
+                  text_color='white', text_font_style='normal')
+    
+    # Draw revenue box (center)
+    for value, x, y, w, h in revenue_data:
+        p.rect(x=x, y=y, width=w, height=h, 
+              color=colors['revenue'], alpha=0.8, 
+              line_color="white", line_width=2,
+              line_alpha=1.0)
+        
+        p.text([x], [y+0.3], text=["Lifetime Revenue"], text_font_size='13pt',
+              text_align='center', text_baseline='middle',
+              text_color='white', text_font_style='bold')
+        p.text([x], [y-0.3], text=[format_value(value)], text_font_size='12pt',
+              text_align='center', text_baseline='middle',
+              text_color='white', text_font_style='normal')
+    
+    # Draw expense boxes
+    for label, value, x, y, w, h in expense_data:
+        if value > 0 or label == "Net Profit":
+            color = colors['profit'] if label == "Net Profit" else colors['expenses']
+            
+            p.rect(x=x, y=y, width=w, height=h, 
+                  color=color, alpha=0.8, 
+                  line_color="white", line_width=2,
+                  line_alpha=1.0)
+            
+            p.text([x], [y+0.15], text=[label], text_font_size='10pt',
+                  text_align='center', text_baseline='middle',
+                  text_color='white', text_font_style='bold')
+            p.text([x], [y-0.15], text=[format_value(value)], text_font_size='9pt',
+                  text_align='center', text_baseline='middle',
+                  text_color='white', text_font_style='normal')
+    
+    # Draw clean flow arrows
+    def draw_arrow(p, x1, y1, x2, y2, color=colors['flow']):
+        # Simple straight arrow
+        p.line([x1, x2], [y1, y2], line_width=3, color=color, alpha=0.7)
+        
+        # Arrowhead
+        arrow_length = 0.2
+        arrow_angle = np.pi / 6
+        
+        # Calculate arrow direction
+        dx = x2 - x1
+        dy = y2 - y1
+        length = np.sqrt(dx**2 + dy**2)
+        dx_norm = dx / length
+        dy_norm = dy / length
+        
+        # Arrow points
+        p1_x = x2 - arrow_length * (dx_norm * np.cos(arrow_angle) - dy_norm * np.sin(arrow_angle))
+        p1_y = y2 - arrow_length * (dx_norm * np.sin(arrow_angle) + dy_norm * np.cos(arrow_angle))
+        p2_x = x2 - arrow_length * (dx_norm * np.cos(-arrow_angle) - dy_norm * np.sin(-arrow_angle))
+        p2_y = y2 - arrow_length * (dx_norm * np.sin(-arrow_angle) + dy_norm * np.cos(-arrow_angle))
+        
+        p.line([p1_x, x2, p2_x], [p1_y, y2, p2_y], line_width=3, color=color, alpha=0.7)
+    
+    # Draw arrows: Investment → Revenue → Expenses
+    draw_arrow(p, 2.4, 6.5, 3.8, 6.5)  # Investment to Revenue
+    draw_arrow(p, 6.2, 6.5, 7.6, 6.5)  # Revenue to Expenses
+    
+    # Add section headers
+    header_style = {
+        'text_font_size': '14pt',
+        'text_font_style': 'bold',
+        'text_align': 'center',
+        'text_baseline': 'middle',
+        'text_color': colors['text']
+    }
+    
+    p.text([1.5], [9.5], text=["INVESTMENT"], **header_style)
+    p.text([5], [9.5], text=["REVENUE"], **header_style)
+    p.text([8.5], [9.5], text=["OUTGOINGS"], **header_style)
+    
+    # Add summary metrics at bottom
+    roi = (total_profit/total_investment*100) if total_investment > 0 else 0
+    revenue_multiple = (total_revenue/total_investment) if total_investment > 0 else 0
+    
+    # Summary box
+    p.rect(x=5, y=1.5, width=6, height=1, color='#f8f9fa', alpha=0.9, 
+           line_color='#dee2e6', line_width=1)
+    
+    summary_text = f"ROI: {roi:.1f}%  |  Revenue Multiple: {revenue_multiple:.1f}x"
+    p.text([5], [1.5], text=[summary_text], 
+           text_font_size='12pt', text_color=colors['text'], text_align='center',
+           text_font_style='bold')
+    
+    # Create hover tooltips
+    # Investment hover areas
+    inv_hover_data = []
+    for label, value, x, y, w, h in investment_data:
+        if value > 0:
+            inv_hover_data.append({
+                'x': x, 'y': y, 'width': w, 'height': h,
+                'label': label, 'value': value
+            })
+    
+    if inv_hover_data:
+        inv_source = ColumnDataSource(data={
+            'x': [d['x'] for d in inv_hover_data],
+            'y': [d['y'] for d in inv_hover_data],
+            'width': [d['width'] for d in inv_hover_data],
+            'height': [d['height'] for d in inv_hover_data],
+            'label': [d['label'] for d in inv_hover_data],
+            'value': [d['value'] for d in inv_hover_data]
+        })
+        
+        inv_hover_rects = p.rect(x='x', y='y', width='width', height='height',
+                                source=inv_source, alpha=0, line_alpha=0)
+        
+        inv_hover = HoverTool(
+            tooltips=[("Category", "@label"), ("Amount", "$@value{0,0}")],
+            renderers=[inv_hover_rects]
+        )
+        p.add_tools(inv_hover)
+    
+    # Expense hover areas
+    exp_hover_data = []
+    for label, value, x, y, w, h in expense_data:
+        if value > 0 or label == "Net Profit":
+            exp_hover_data.append({
+                'x': x, 'y': y, 'width': w, 'height': h,
+                'label': label, 'value': value
+            })
+    
+    if exp_hover_data:
+        exp_source = ColumnDataSource(data={
+            'x': [d['x'] for d in exp_hover_data],
+            'y': [d['y'] for d in exp_hover_data],
+            'width': [d['width'] for d in exp_hover_data],
+            'height': [d['height'] for d in exp_hover_data],
+            'label': [d['label'] for d in exp_hover_data],
+            'value': [d['value'] for d in exp_hover_data]
+        })
+        
+        exp_hover_rects = p.rect(x='x', y='y', width='width', height='height',
+                                source=exp_source, alpha=0, line_alpha=0)
+        
+        exp_hover = HoverTool(
+            tooltips=[("Category", "@label"), ("Amount", "$@value{0,0}")],
+            renderers=[exp_hover_rects]
+        )
+        p.add_tools(exp_hover)
+    
+    # Final styling
+    p.grid.visible = False
+    p.axis.visible = False
+    p.outline_line_color = "#dee2e6"
+    p.outline_line_width = 1
+    p.title.text_font_size = "16pt"
+    p.title.text_color = colors['text']
+    p.title.align = "center"
+    p.title.text_font_style = "bold"
+    
     return p
