@@ -20,14 +20,25 @@ from bokeh.models import Div
 from bokeh.themes import Theme
 from bokeh.models import GlobalInlineStyleSheet, GlobalImportedStyleSheet
 from bokeh.io import curdoc
+import os
 
 # --- Apply Fusion Fintech Theme ---
-curdoc().theme = Theme(filename="fusion_theme.yaml")
-curdoc().template_stylesheets.append(
-    GlobalImportedStyleSheet(
-        url="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
+theme_path = os.path.join(os.path.dirname(__file__), "themes", "fusion_theme.yaml")
+if os.path.exists(theme_path):
+    curdoc().theme = Theme(filename=theme_path)
+else:
+    print(f"Warning: Theme file not found at {theme_path}")
+    
+# Note: template_stylesheets may not be available in all Bokeh versions
+try:
+    curdoc().template_stylesheets.append(
+        GlobalImportedStyleSheet(
+            url="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
+        )
     )
-)
+except AttributeError:
+    # Fallback for older Bokeh versions
+    pass
 fintech_css = GlobalInlineStyleSheet(
     css="""
 :host, body {background:#F8FAFC;font-family:'Inter',sans-serif;color:#0F172A;}
@@ -41,7 +52,11 @@ fintech_css = GlobalInlineStyleSheet(
 .bk-tab.bk-active{background:#1E3A8A;color:#fff;}
 """
 )
-curdoc().template_stylesheets.append(fintech_css)
+# Apply stylesheet if available
+try:
+    curdoc().template_stylesheets.append(fintech_css)
+except AttributeError:
+    pass
 
 
 def main():
@@ -276,6 +291,18 @@ def main():
 #     gap="24px", padding="24px", background="#FFFFFF",
 #     border_radius="12px", box_shadow="0 6px 24px #0002"))
 # curdoc().add_root(root)
+
+# --- Import and Setup Dashboard ---
+# Import the dashboard layout from dashboard.py
+try:
+    import dashboard
+    print("Dashboard module imported successfully")
+except ImportError as e:
+    print(f"Error importing dashboard: {e}")
+    # Create a simple error message if dashboard import fails
+    from bokeh.models import Div
+    error_div = Div(text=f"<h1>Error Loading Dashboard</h1><p>Import error: {e}</p>")
+    curdoc().add_root(error_div)
 
 if __name__ == "__main__":
     main()

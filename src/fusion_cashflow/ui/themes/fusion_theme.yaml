@@ -1,6 +1,6 @@
 attrs:
   Figure:
-    background_fill_color: "#FFFFFF"
+    background_fill_color: "#00375b"
     border_fill_color: "#FFFFFF"
     outline_line_color: null
     outline_line_width: 0

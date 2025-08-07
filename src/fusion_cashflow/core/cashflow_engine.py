@@ -291,23 +291,6 @@ def build_debt_drawdown_and_amortization(
     return drawdown_schedule, amort_schedule
 
 
-def lcoe_from_cost_vectors(capex_vec, opex_vec, fuel_vec, decom_vec, energy_vec, discount_rate):
-    """
-    Lazard LCOE:
-    PV(all discounted cost streams) ÷ PV(discounted energy),
-    both discounted at the project WACC.
-    """
-    cost_vec = (np.array(capex_vec) +
-                np.array(opex_vec) +
-                np.array(fuel_vec) +
-                np.array(decom_vec))
-
-    pv_costs  = npf.npv(discount_rate, cost_vec)
-    pv_energy = npf.npv(discount_rate, energy_vec)
-
-    return pv_costs / pv_energy if pv_energy > 0 else np.nan
-
-
 def lcoe_from_cost_vectors_with_tax(capex_vec, opex_vec, fuel_vec, decom_vec, 
                                    energy_vec, discount_rate, tax_vec):
     """
@@ -351,7 +334,9 @@ def dscr(cashflows, debt_service):
 
 def equity_multiple(cashflows, equity_investment):
     """Equity multiple: total cash returned to equity / equity invested."""
-    return np.sum(cashflows) / equity_investment
+    if equity_investment == 0:
+        return np.nan
+    return np.sum(cashflows) / abs(equity_investment)
 
 
 # =============================
@@ -939,7 +924,15 @@ def run_cashflow_scenario(config):
     equity_npv = npf.npv(discount_rate, equity_cf_vec)
     equity_irr = npf.irr(equity_cf_vec)
     equity_payback = payback_period(cumulative_equity_cf_vec)
-    equity_mult = sum(equity_cf_vec) / abs(toc * input_equity_pct)
+    
+    # Calculate equity multiple using the proper function
+    equity_mult = equity_multiple(equity_cf_vec, toc * input_equity_pct)
+    
+    # Calculate DSCR statistics for operational years
+    operational_dscr = [d for d in dscr_vec if not np.isnan(d)]
+    min_dscr = min(operational_dscr) if operational_dscr else np.nan
+    avg_dscr = np.mean(operational_dscr) if operational_dscr else np.nan
+    
     # tN = time.time(); print(f'[PROFILE] before return: {tN-t0:.2f}s')
     # print('[PROFILE] run_cashflow_scenario: end, total time:', time.time() - t0)
     return {
@@ -953,6 +946,8 @@ def run_cashflow_scenario(config):
         "equity_payback": equity_payback,
         "lcoe_val": lcoe_val,
         "equity_mult": equity_mult,
+        "min_dscr": min_dscr,
+        "avg_dscr": avg_dscr,
         "dscr_vec": dscr_vec,
         "year_labels": year_labels,
         "cashflow_type": cashflow_type,
@@ -993,7 +988,6 @@ def run_cashflow_scenario(config):
 def run_sensitivity_analysis(base_config):
     """Run a dense sensitivity analysis on key variables and return a DataFrame of results."""
     import copy
-    import pandas as pd
 
     bands = [
         -0.14,
