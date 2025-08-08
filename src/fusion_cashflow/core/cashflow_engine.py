@@ -1008,10 +1008,11 @@ def run_sensitivity_analysis(base_config):
     ]
     drivers = [
         ("Construction Years", ["years_construction"]),
-        ("WACC", ["cost_of_debt"]),
         ("Electricity Price", ["electricity_price"]),
         ("EPC Cost", ["total_epc_cost"]),
         ("Net Electric Power (MW)", ["net_electric_power_mw"]),
+        ("Capacity Factor", ["capacity_factor"]),
+        ("Debt Percentage", ["input_debt_pct"]),
     ]
     metrics = []
     # For each driver and band
@@ -1023,9 +1024,8 @@ def run_sensitivity_analysis(base_config):
             "Band": "0%",
             "NPV": base_outputs["npv"],
             "IRR": base_outputs["irr"],
-            "Equity NPV": base_outputs["equity_npv"],
-            "Equity IRR": base_outputs["equity_irr"],
             "LCOE": base_outputs["lcoe_val"],
+            "Payback Period": base_outputs.get("payback_period", 0),
         }
         metrics.append(base_metrics)
         for band in bands:
@@ -1043,6 +1043,13 @@ def run_sensitivity_analysis(base_config):
                     else:
                         continue  # Key missing, skip this band
                 config_mod[key] *= 1 + band
+                
+                # Apply constraints to keep parameters within reasonable bounds
+                if key == "capacity_factor":
+                    config_mod[key] = max(0.1, min(1.0, config_mod[key]))  # Keep between 10% and 100%
+                elif key == "input_debt_pct":
+                    config_mod[key] = max(0.0, min(0.95, config_mod[key]))  # Keep between 0% and 95%
+                
                 # If the key is one of the integer parameters, cast it back to int
                 if key in ["years_construction", "plant_lifetime", "dep_years", "repayment_term_years", "grace_period_years", "ramp_up_years"]:
                     config_mod[key] = int(round(config_mod[key]))
@@ -1055,9 +1062,8 @@ def run_sensitivity_analysis(base_config):
                     "Band": percent,
                     "NPV": outputs["npv"],
                     "IRR": outputs["irr"],
-                    "Equity NPV": outputs["equity_npv"],
-                    "Equity IRR": outputs["equity_irr"],
                     "LCOE": outputs["lcoe_val"],
+                    "Payback Period": outputs.get("payback_period", 0),
                 }
             )
     df = pd.DataFrame(metrics)

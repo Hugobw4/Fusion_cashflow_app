@@ -41,8 +41,13 @@ attrs:
     spacing: 8
     label_standoff: 8
 palette:
-  - "#1E3A8A"
-  - "#0891B2"
-  - "#22C55E"
-  - "#EAB308"
-  - "#EF4444"
+  - "#1E3A8A"  # Blue (index 0)
+  - "#0891B2"  # Cyan (index 1)
+  - "#22C55E"  # Green (index 2)
+  - "#EAB308"  # Yellow (index 3)
+  - "#EF4444"  # Red (index 4)
+  - "#16a085"  # Teal (index 5)
+  - "#27ae60"  # Green alt (index 6)
+  - "#f39c12"  # Orange (index 7)
+  - "#e74c3c"  # Red alt (index 8)
+  - "#2980b9"  # Blue alt (index 9)
