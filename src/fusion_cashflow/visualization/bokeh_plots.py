@@ -778,131 +778,149 @@ def _build_patches(nodes, links, scale):
 
 def plot_sensitivity_heatmap(outputs, config, sensitivity_df):
     """
-    Create a Bokeh categorical heatmap for sensitivity analysis (ΔNPV by driver and scenario band).
-    Args:
-        outputs (dict): Output from cashflow_engine.run_cashflow_scenario
-        config (dict): Model configuration
-        sensitivity_df (pd.DataFrame): DataFrame from run_sensitivity_analysis
-    Returns:
-        bokeh.plotting.Figure: Bokeh heatmap figure
+    Create a clean, focused Bokeh heatmap showing NPV impact only.
+    Green = NPV increases (good), Red = NPV decreases (bad)
     """
     from bokeh.models import (
         ColumnDataSource,
         ColorBar,
         BasicTicker,
         PrintfTickFormatter,
+        NumeralTickFormatter,
         FactorRange,
+        LabelSet,
     )
     from bokeh.transform import linear_cmap
+    from bokeh.palettes import RdYlGn
+    import pandas as pd
 
-    # Calculate deltas per driver
+    # Calculate NPV deltas (impact relative to base case)
     base_npv = sensitivity_df[sensitivity_df["Band"] == "0%"].set_index("Driver")["NPV"]
-    base_irr = sensitivity_df[sensitivity_df["Band"] == "0%"].set_index("Driver")["IRR"]
-
-    def delta_npv(row):
+    
+    def calculate_npv_delta(row):
         return row["NPV"] - base_npv[row["Driver"]]
-
-    def delta_irr(row):
-        return row["IRR"] - base_irr[row["Driver"]]
-
-    sensitivity_df["ΔNPV"] = sensitivity_df.apply(delta_npv, axis=1)
-    sensitivity_df["ΔIRR"] = sensitivity_df.apply(delta_irr, axis=1)
-    # Now assign heatmap_df after delta columns are present
+    
+    sensitivity_df["NPV_Delta"] = sensitivity_df.apply(calculate_npv_delta, axis=1)
+    
+    # Create clean labels for the cells - fix the formatting issue
+    def format_impact(delta):
+        if delta == 0:
+            return "$0"
+        elif abs(delta) >= 1e9:  # Billions
+            return f"${delta/1e9:+.1f}B"
+        elif abs(delta) >= 1e6:  # Millions
+            return f"${delta/1e6:+0.0f}M"
+        elif abs(delta) >= 1e3:  # Thousands
+            return f"${delta/1e3:+0.0f}K"
+        else:
+            return f"${delta:+0.0f}"
+    
+    # Create a clean copy to avoid modifying the original
     heatmap_df = sensitivity_df.copy()
-    # Categorical axes
-    # Use full driver names for y-axis
+    heatmap_df["Impact_Label"] = heatmap_df["NPV_Delta"].apply(format_impact)
+    
+    # Prepare categorical axes
     drivers = list(heatmap_df["Driver"].unique())
-
-    # Sort bands numerically so 0% is between -2% and +2%
+    
+    # Sort bands numerically
     def band_sort_key(b):
         try:
-            return int(b.replace("%", ""))
+            return int(b.replace("%", "").replace("+", ""))
         except:
             return 0
-    # Use full text for x-axis (e.g., '-14%', ..., '+14%')
     bands = sorted(heatmap_df["Band"].unique(), key=band_sort_key)
-    # Prepare data for Bokeh
+    
+    # Create Bokeh data source
     source = ColumnDataSource(heatmap_df)
-    # Custom diverging palette: green to white to red, with white at the center
+    
+    # Color mapping: Red for negative impact, Green for positive impact
     from bokeh.palettes import RdYlGn
-    palette = list(reversed(RdYlGn[11]))  # Reverse the palette so Green = positive, Red = negative
-    # Optionally, to ensure mutability and avoid linter errors, do not modify the palette if it causes issues.
-    # Symmetric color mapping: 0 always maps to white
-    max_abs = max(abs(heatmap_df["ΔNPV"].min()), abs(heatmap_df["ΔNPV"].max()))
+    palette = list(reversed(RdYlGn[11]))  # Reverse so Red=negative, Green=positive
+    
+    # Get the maximum absolute impact for symmetric color scaling
+    max_abs_impact = max(abs(heatmap_df["NPV_Delta"].min()), 
+                        abs(heatmap_df["NPV_Delta"].max()))
+    
+    if max_abs_impact == 0:
+        max_abs_impact = 1  # Avoid division by zero
+    
+    # Linear color mapping: negative values = red, positive values = green
     mapper = linear_cmap(
-        field_name="ΔNPV", palette=palette, low=-max_abs, high=+max_abs
+        field_name="NPV_Delta", 
+        palette=palette, 
+        low=-max_abs_impact,  # Most negative = red (index 0)
+        high=+max_abs_impact  # Most positive = green (index 10)
     )
-    from bokeh.models import FactorRange
+    
+    # Create the figure
     p = figure(
-        title="Sensitivity Analysis: ΔNPV by Driver and Scenario",
+        title="Sensitivity Analysis: NPV Impact (Green=Favorable, Red=Unfavorable)",
         x_range=FactorRange(*bands),
-        y_range=FactorRange(*drivers[::-1]),
+        y_range=FactorRange(*drivers[::-1]),  # Reverse order for top-to-bottom
         x_axis_location="above",
-        width=950,  # Optimized width to fit in container
-        height=300,  # Compact height
+        width=1000,
+        height=400,
         tools="hover,save",
         toolbar_location="right",
-        sizing_mode="scale_width",  # Responsive scaling
+        sizing_mode="scale_width",
         tooltips=[
             ("Driver", "@Driver"),
-            ("Scenario", "@Scenario"),
-            ("Band", "@Band"),
-            ("NPV", "$@{NPV}{0,0}"),
-            ("ΔNPV", "$@{ΔNPV}{0,0}"),
+            ("Change", "@Band"),
+            ("NPV", "$@{NPV}{0,0.0}"),
+            ("NPV Impact", "@Impact_Label"),
             ("IRR", "@{IRR}{0.00%}"),
-            ("ΔIRR", "@{ΔIRR}{0.00%}"),
+            ("LCOE", "$@{LCOE}{0.00}/MWh"),
         ],
     )
+    
+    # Add the heatmap rectangles
     p.rect(
         x="Band",
         y="Driver",
-        width=1,
-        height=1,
+        width=0.95,
+        height=0.95,
         source=source,
-        line_color=None,
+        line_color="white",
+        line_width=1,
         fill_color=mapper,
     )
-    # Add simplified ΔNPV values as labels in each cell
-    heatmap_df["label"] = heatmap_df.apply(
-        lambda row: f"${row['ΔNPV']/1e9:.2f}B" if abs(row['ΔNPV']) >= 1e8 else f"${row['ΔNPV']/1e6:.0f}M", axis=1
-    )
-    from bokeh.models import LabelSet
-    label_source = ColumnDataSource(heatmap_df)
+    
+    # Add impact labels to each cell with smaller, cleaner text
     labels = LabelSet(
         x="Band",
         y="Driver",
-        text="label",
-        source=label_source,
+        text="Impact_Label",
+        source=source,
         text_align="center",
         text_baseline="middle",
-        text_font_size="8pt",  # Reduced font size for better fit
-        text_font_style="bold",  # Make text bold for better readability
-        text_color="black"  # Ensure good contrast
+        text_font_size="8pt",  # Smaller font for cleaner look
+        text_font_style="bold",
+        text_color="black"
     )
     p.add_layout(labels)
-    # Colorbar
-    from bokeh.models import NumeralTickFormatter
-    color_bar = ColorBar(
-        color_mapper=mapper["transform"],
-        major_label_text_font_size="8pt",  # Reduced colorbar font size
-        ticker=BasicTicker(desired_num_ticks=7),
-        formatter=NumeralTickFormatter(format="$0.0a"),
-        label_standoff=8,
-        border_line_color=None,
-        location=(0, 0),
-    )
-    p.add_layout(color_bar, "right")
-    # Axis polish
-    p.xaxis.axis_label = "Scenario Band (%)"
-    p.yaxis.axis_label = "Driver"
-    p.xaxis.major_label_orientation = 0  # Horizontal text for better readability
-    p.grid.grid_line_color = None
+    
+    # Style the plot
     p.axis.axis_line_color = None
     p.axis.major_tick_line_color = None
-    p.axis.major_label_text_font_size = "9pt"  # Reduced axis labels font size
-    p.yaxis.major_label_text_font_size = "9pt"
-    p.title.text_font_size = "12pt"  # Reduced title font size
-    p.outline_line_color = None
+    p.axis.major_label_text_font_size = "10pt"
+    p.axis.major_label_standoff = 0
+    p.xaxis.major_label_orientation = 0
+    p.grid.grid_line_color = None
+    
+    # Add color bar with simpler formatting
+    from bokeh.models import NumeralTickFormatter
+    color_bar = ColorBar(
+        color_mapper=mapper.transform, 
+        width=8, 
+        label_standoff=12,
+        title="NPV Impact",
+        title_text_font_size="10pt",
+        major_label_text_font_size="9pt",
+        formatter=NumeralTickFormatter(format="$0.0a"),  # Uses 'a' for auto-scaling (1.2B, 500M, etc.)
+        ticker=BasicTicker(desired_num_ticks=5)
+    )
+    p.add_layout(color_bar, 'right')
+    
     return p
 
 

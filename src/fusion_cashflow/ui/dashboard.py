@@ -423,6 +423,7 @@ def make_widgets(config):
         end=1.0,
         value=config["capacity_factor"],
         step=0.01,
+        format="0%",
     )
     widgets["fuel_type"] = Select(
         title="Fuel Type", value=config["fuel_type"], options=[
@@ -433,7 +434,7 @@ def make_widgets(config):
         ]
     )
     widgets["input_debt_pct"] = Slider(
-        title="Debt %", start=0.0, end=1.0, value=config["input_debt_pct"], step=0.01
+        title="Debt %", start=0.0, end=1.0, value=config["input_debt_pct"], step=0.01, format="0%"
     )
     widgets["cost_of_debt"] = Slider(
         title="Cost of Debt",
@@ -441,9 +442,10 @@ def make_widgets(config):
         end=0.2,
         value=config["cost_of_debt"],
         step=0.001,
+        format="0.0%",
     )
     widgets["loan_rate"] = Slider(
-        title="Loan Rate", start=0.0, end=0.2, value=config["loan_rate"], step=0.001
+        title="Loan Rate", start=0.0, end=0.2, value=config["loan_rate"], step=0.001, format="0.0%"
     )
     widgets["financing_fee"] = Slider(
         title="Financing Fee",
@@ -451,6 +453,7 @@ def make_widgets(config):
         end=0.1,
         value=config["financing_fee"],
         step=0.001,
+        format="0.0%",
     )
     widgets["repayment_term_years"] = Slider(
         title="Repayment Term (years)",
@@ -507,6 +510,7 @@ def make_widgets(config):
         end=0.5,
         value=config["extra_capex_pct"],
         step=0.01,
+        format="0%",
     )
     widgets["project_contingency_pct"] = Slider(
         title="Project Contingency %",
@@ -514,6 +518,7 @@ def make_widgets(config):
         end=0.5,
         value=config["project_contingency_pct"],
         step=0.01,
+        format="0%",
     )
     widgets["process_contingency_pct"] = Slider(
         title="Process Contingency %",
@@ -521,6 +526,7 @@ def make_widgets(config):
         end=0.5,
         value=config["process_contingency_pct"],
         step=0.01,
+        format="0%",
     )
     widgets["fixed_om_per_mw"] = Slider(
         title="Fixed O&M per MW ($)",
@@ -760,6 +766,7 @@ def debounced_update():
 
 
 def download_csv_callback(source, filename):
+    """Generate CSV data from ColumnDataSource."""
     df = pd.DataFrame(source.data)
     csv = df.to_csv(index=False)
     return csv
@@ -1061,28 +1068,56 @@ dscr_table = DataTable(source=dscr_source, columns=dscr_columns, width=600, heig
 # --- Download buttons ---
 def make_download_button(source, label, filename):
     button = Button(label=label, button_type="primary", width=160)
-
-    def cb():
-        csv = download_csv_callback(source, filename)
-        button.js_on_click(None)  # Remove previous
-        button.js_on_click(
-            """
-            var blob = new Blob([atob('%s')], {type: 'text/csv'});
-            var link = document.createElement('a');
-            link.href = window.URL.createObjectURL(blob);
-            link.download = '%s';
+    
+    # Create the download callback with the data source
+    download_callback = CustomJS(args=dict(source=source, filename=filename), code="""
+        // Convert ColumnDataSource data to CSV
+        var data = source.data;
+        var columns = Object.keys(data);
+        var nrows = data[columns[0]].length;
+        
+        // Create CSV header
+        var csv = columns.join(',') + '\\n';
+        
+        // Add data rows
+        for (var i = 0; i < nrows; i++) {
+            var row = [];
+            for (var j = 0; j < columns.length; j++) {
+                var value = data[columns[j]][i];
+                // Handle null/undefined values
+                if (value === null || value === undefined) {
+                    value = '';
+                } else if (typeof value === 'string' && value.includes(',')) {
+                    // Escape commas in string values
+                    value = '"' + value + '"';
+                }
+                row.push(value);
+            }
+            csv += row.join(',') + '\\n';
+        }
+        
+        // Create and trigger download
+        var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        var link = document.createElement('a');
+        if (link.download !== undefined) {
+            var url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
             link.click();
-        """
-            % (csv.encode("utf-8").hex(), filename)
-        )
-
-    button.on_event(ButtonClick, lambda event: cb())
+            document.body.removeChild(link);
+        }
+    """)
+    
+    button.js_on_click(download_callback)
     return button
 
 
 annual_download = make_download_button(annual_source, " Download Annual Data", "annual.csv")
 cum_download = make_download_button(cum_source, " Download Cumulative Data", "cumulative.csv")
 dscr_download = make_download_button(dscr_source, " Download DSCR Data", "dscr.csv")
+sens_download = make_download_button(sens_source, " Download Sensitivity Data", "sensitivity.csv")
 
 
 # --- Layout ---
@@ -1254,11 +1289,15 @@ sens_col = column(
     Div(
         text="<h3 style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Sensitivity Analysis</h3><p style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif;'>Click the button to recompute sensitivity analysis with current inputs.</p>"
     ),
-    Button(
-        label="Run Sensitivity Analysis",
-        button_type="primary",
-        width=220,
-        name="run_sens_btn",
+    row(
+        Button(
+            label="Run Sensitivity Analysis",
+            button_type="primary",
+            width=220,
+            name="run_sens_btn",
+        ),
+        sens_download,
+        Spacer(width=20),  # Add some spacing between buttons
     ),
     sens_plot_container,
     sizing_mode="stretch_both",
@@ -1580,13 +1619,27 @@ def run_sensitivity_callback():
     sensitivity_df = run_sensitivity_analysis(config)
     sens_fig_new = plot_sensitivity_heatmap(outputs, config, sensitivity_df)
     sens_plot_container.children[0] = sens_fig_new
+    
+    # Update the sensitivity data source for download
+    sens_source.data = ColumnDataSource.from_df(sensitivity_df)
 
 
 # Find the button in sens_col and attach callback
-for child in sens_col.children:
-    if isinstance(child, Button) and getattr(child, "name", None) == "run_sens_btn":
-        child.on_click(run_sensitivity_callback)
-        break
+def find_sensitivity_button(layout):
+    """Recursively find the sensitivity analysis button."""
+    if hasattr(layout, 'children'):
+        for child in layout.children:
+            if isinstance(child, Button) and getattr(child, "name", None) == "run_sens_btn":
+                return child
+            elif hasattr(child, 'children'):
+                result = find_sensitivity_button(child)
+                if result:
+                    return result
+    return None
+
+sens_button = find_sensitivity_button(sens_col)
+if sens_button:
+    sens_button.on_click(run_sensitivity_callback)
 
 # --- Optimization Button Callback ---
 widgets["optimise_button"].on_click(run_optimiser)
