@@ -632,10 +632,16 @@ def _calculate_ife_power_balance(net_mw: float, fuel_type: str = "DT", impfreq: 
         PALPHA = 0   # MW (no alpha for aneutronic)
         PNEUTRON = PNRL  # MW
     else:  # DT fuel
-        # Calculate based on net power requirement
-        PNRL = net_mw * 2.8  # MW (rough scaling from net to fusion power for IFE)  
-        PALPHA = 520  # MW (DT alpha power)
-        PNEUTRON = PNRL - PALPHA  # MW
+        # Calculate fusion power from net electric power
+        # Rule of thumb: PNRL ~ 2.5-3.0× net electric for IFE
+        PNRL = net_mw * 2.8  # MW (rough scaling from net to fusion power for IFE)
+        
+        # DT fusion physics: Energy partition is fixed by nuclear cross-sections
+        # Alpha particle (He-4): 3.5 MeV → 20% of fusion energy
+        # Neutron: 14.1 MeV → 80% of fusion energy
+        # Therefore: P_alpha / P_fusion = 3.5 / (3.5 + 14.1) = 0.2
+        PALPHA = PNRL * 0.2  # MW (20% of fusion power in alpha particles)
+        PNEUTRON = PNRL * 0.8  # MW (80% of fusion power in neutrons)
     
     # IFE parameters from pycosting_arpa_e_ife.py
     MN = 1.09  # Neutron energy multiplier

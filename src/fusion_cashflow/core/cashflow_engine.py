@@ -114,9 +114,9 @@ REGIONAL_TAX_RATES = {
     "Europe": 20.18, #https://taxfoundation.org/data/all/global/corporate-tax-rates-by-country-2024/
     "China": 25.00, #https://taxsummaries.pwc.com/peoples-republic-of-china/corporate/taxes-on-corporate-income#:~:text=Under%20the%20CIT%20law%2C%20the,standard%20tax%20rate%20is%2025
     "India": 15.00, #https://taxsummaries.pwc.com/india/corporate/taxes-on-corporate-income#:~:text=Reduced%20rate%20of%20tax%20for,engaged%20in%20generation%20of%20electricity  ENERGY SECTOR SPECIFIC
-    "Southen Africa": 27.00, # https://taxsummaries.pwc.com/south-africa/corporate/taxes-on-corporate-income#:~:text=For%20tax%20years%20ending%20before,or%20after%2031%20March%202023
+    "Southern Africa": 27.00, # https://taxsummaries.pwc.com/south-africa/corporate/taxes-on-corporate-income#:~:text=For%20tax%20years%20ending%20before,or%20after%2031%20March%202023
     "Oceania": 24.38, #https://taxfoundation.org/data/all/global/corporate-tax-rates-by-country-2024/
-    "MENA": 55.00, #https://taxsummaries.pwc.com/oman/corporate/taxes-on-corporate-income#:~:text=Petroleum%20income%20tax NO SPECIFIC ENERGY GENERATION TAX BUT PETROLEUM COMPANYS PAY 55% OMAN AND UAE
+    "MENA": 20.00, #https://taxsummaries.pwc.com/oman/corporate/taxes-on-corporate-income#:~:text=Petroleum%20income%20tax NO SPECIFIC ENERGY GENERATION TAX BUT PETROLEUM COMPANYS PAY 55% OMAN AND UAE
     "Sub-Saharan Africa": 27.28, #https://taxfoundation.org/data/all/global/corporate-tax-rates-by-country-2024/
     "Latin America": 27.36, #https://pages.stern.nyu.edu/~adamodar/pc/archives/countrytaxrates21.xls#:~:text=%5BXLS%5D%20https%3A%2F%2Fpages.stern.nyu.edu%2F,27.36
     "Russia & CIS": 25.00, #https://tass.com/economy/1816413#:~:text=MOSCOW%2C%20July%2012,of%20the%20corporate%20income%20tax
@@ -255,57 +255,133 @@ def straight_line_half_year(total_cost, dep_years, plant_lifetime):
 def build_debt_drawdown_and_amortization(
     principal, loan_rate, repayment_term_years, grace, plant_lifetime, years_construction
 ):
-    """Debt drawdown during construction (S-curve), then amortization (interest only, then principal)."""
+    """
+    Debt drawdown during construction (S-curve), then amortization with grace period.
+    
+    Schedule structure:
+    1. Construction years: Interest-only on cumulative S-curve drawdown
+    2. Grace period: Interest-only on full principal (no principal payments)
+    3. Amortization period: Standard annuity (constant total payment)
+    
+    Args:
+        principal: Total loan amount ($)
+        loan_rate: Annual interest rate (decimal)
+        repayment_term_years: Loan repayment period (years)
+        grace: Grace period duration (years)
+        plant_lifetime: Plant operational lifetime (years)
+        years_construction: Construction duration (years)
+        
+    Returns:
+        drawdown_schedule: List of annual debt drawdowns ($)
+        amort_schedule: List of (principal_payment, interest_payment) tuples ($)
+    """
     total_years = years_construction + plant_lifetime
     drawdown_schedule = [0] * total_years
-    amort_schedule = [(0,0)] * total_years
+    amort_schedule = [(0, 0)] * total_years
     
     # S-curve drawdown over construction years
     if years_construction > 0:
-        x = np.linspace(-6, 6, years_construction)  # Adjust range for desired S-curve shape
+        x = np.linspace(-6, 6, years_construction)
         s_curve = expit(x)
         s_curve_diff = np.diff(s_curve, prepend=0)
         # Normalize to ensure total drawdown equals principal
         normalized_s_curve_drawdown = (s_curve_diff / s_curve_diff.sum()) * principal
         for y in range(years_construction):
             drawdown_schedule[y] = normalized_s_curve_drawdown[y]
-    # Amortization schedule (interest-only during construction, then principal + interest)
-    # Interest during construction is based on the cumulative S-curve drawdown
+    
+    # Interest during construction (based on cumulative S-curve drawdown)
     cumulative_drawdown = np.cumsum(drawdown_schedule)
     for y in range(years_construction):
-        # Interest-only during construction
         interest_payment = cumulative_drawdown[y] * loan_rate
-        amort_schedule[y] = (0, interest_payment)  # No principal payment during construction
-
-    # Principal + interest after construction
+        amort_schedule[y] = (0, interest_payment)
+    
+    # Grace period: Interest-only on full principal
     remaining_principal = principal
-    for y in range(years_construction, total_years):
-        if remaining_principal <= 0:
-            break
-         # Simple amortization for now, can be improved with more complex methods
+    grace_end_year = years_construction + grace
+    
+    for y in range(years_construction, min(grace_end_year, total_years)):
         interest_payment = remaining_principal * loan_rate
-        principal_payment = min(remaining_principal, principal / repayment_term_years)  # Even principal repayment over repayment term
-        amort_schedule[y] = (principal_payment, interest_payment)
-        remaining_principal -= principal_payment
+        amort_schedule[y] = (0, interest_payment)
+    
+    # Amortization period: Standard annuity formula (constant payment)
+    amortization_start_year = grace_end_year
+    
+    if remaining_principal > 0 and repayment_term_years > 0 and amortization_start_year < total_years:
+        # Calculate constant payment using annuity formula
+        # PMT = P × [r(1+r)^n] / [(1+r)^n - 1]
+        if loan_rate > 0:
+            constant_payment = remaining_principal * (
+                loan_rate * (1 + loan_rate) ** repayment_term_years
+            ) / (
+                (1 + loan_rate) ** repayment_term_years - 1
+            )
+        else:
+            # Zero interest rate: divide principal evenly
+            constant_payment = remaining_principal / repayment_term_years
         
+        # Build amortization schedule with constant payment
+        for y in range(amortization_start_year, total_years):
+            if remaining_principal <= 0.01:  # Allow small rounding error
+                break
+            
+            # Interest on remaining balance
+            interest_payment = remaining_principal * loan_rate
+            
+            # Principal is constant payment minus interest
+            principal_payment = constant_payment - interest_payment
+            
+            # Handle final payment (remaining principal might be less than calculated)
+            if principal_payment > remaining_principal:
+                principal_payment = remaining_principal
+                # Recalculate interest for final payment
+                interest_payment = remaining_principal * loan_rate
+            
+            amort_schedule[y] = (principal_payment, interest_payment)
+            remaining_principal -= principal_payment
+            
+            # Stop after repayment term
+            if y - amortization_start_year + 1 >= repayment_term_years:
+                break
+    
     return drawdown_schedule, amort_schedule
 
 
 def lcoe_from_cost_vectors_with_tax(capex_vec, opex_vec, fuel_vec, decom_vec, 
                                    energy_vec, discount_rate, tax_vec):
     """
-    Enhanced LCOE with tax effects:
-    PV(all costs + taxes paid) ÷ PV(discounted energy)
+    Calculate post-tax LCOE including all cash costs to project.
     
-    Note: tax_vec contains actual cash taxes paid to government,
-    which are additional costs, not savings.
+    This is an "all-in" LCOE that includes:
+    - Capital costs (CAPEX)
+    - Operating costs (OPEX)  
+    - Fuel costs
+    - Decommissioning costs
+    - Cash taxes paid to government
+    
+    Post-tax LCOE enables fair comparison across regions with different
+    tax regimes by showing the true all-in cost per MWh including tax burden.
+    
+    For technology-only comparison (ignoring tax policy differences),
+    consider using pre-tax LCOE by excluding tax_vec.
+    
+    Args:
+        capex_vec: Capital expenditure vector ($/year)
+        opex_vec: Operating expenditure vector ($/year)
+        fuel_vec: Fuel cost vector ($/year)
+        decom_vec: Decommissioning cost vector ($/year)
+        energy_vec: Energy production vector (MWh/year)
+        discount_rate: Discount rate for NPV calculation (decimal)
+        tax_vec: Cash taxes paid vector ($/year)
+        
+    Returns:
+        LCOE in $/MWh (post-tax, all-in basis)
     """
-    # Calculate total costs including taxes
+    # Calculate total costs including taxes (real cash costs to project)
     total_costs = (np.array(capex_vec) + 
                    np.array(opex_vec) + 
                    np.array(fuel_vec) + 
                    np.array(decom_vec) +
-                   np.array(tax_vec))  # Add taxes as costs, not subtract!
+                   np.array(tax_vec))  # Taxes are real cash costs to project
     
     pv_costs = npf.npv(discount_rate, total_costs)
     pv_energy = npf.npv(discount_rate, energy_vec)
@@ -708,9 +784,12 @@ def run_cashflow_scenario(config):
         esc = escalation_factors[y]
         capex_outflow = drawdown_schedule[y] * esc
         financing_outflow = financing_charges / years_construction * esc
-        interest_during_construction = (
-            sum(drawdown_schedule[:y]) * loan_rate * esc if y > 0 else 0
-        )
+        
+        # Use pre-calculated interest from amortization schedule (prevents double-counting)
+        # amort_schedule[y] = (principal_payment, interest_payment)
+        # During construction: principal=0, interest based on cumulative drawdown
+        interest_during_construction = amort_schedule[y][1] * esc
+        
         net_cf = -(
             capex_outflow + financing_outflow + interest_during_construction
         )
@@ -770,22 +849,20 @@ def run_cashflow_scenario(config):
         op_profit = revenue - fuel - om
         cash_tax = max(0, op_profit - depreciation) * tax_rate
         tax_vec.append(cash_tax)
-        if op_year < (
-            project_energy_start_year + grace_period_years - construction_start_year
-        ):
-            principal_payment, interest_payment = 0, 0
+        # Debt service from pre-calculated amortization schedule
+        # Schedule already accounts for:
+        # - Construction years: Interest on cumulative drawdown
+        # - Grace period: Interest-only on full principal  
+        # - Amortization period: Principal + interest (constant payment annuity)
+        if op_year < len(amort_schedule):
+            principal_payment, interest_payment = amort_schedule[op_year]
+            # Apply escalation to debt service
+            principal_payment *= esc
+            interest_payment *= esc
         else:
-            idx = op_year - (
-                project_energy_start_year + grace_period_years - construction_start_year
-            )
-            if 0 <= idx < grace_period_years:
-                principal_payment, interest_payment = 0, amort_schedule[idx][1]
-            elif (
-                grace_period_years <= idx < (grace_period_years + repayment_term_years)
-            ):
-                principal_payment, interest_payment = amort_schedule[idx]
-            else:
-                principal_payment, interest_payment = 0, 0
+            # Beyond schedule (loan fully repaid or past plant life)
+            principal_payment, interest_payment = 0, 0
+        
         principal_paid_vec.append(principal_payment)
         interest_paid_vec.append(interest_payment)
         debt_service = principal_payment + interest_payment
