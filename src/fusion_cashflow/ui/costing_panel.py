@@ -8,6 +8,7 @@ Provides:
 - Total EPC cost summary
 """
 
+import numpy as np
 from bokeh.models import (
     ColumnDataSource,
     DataTable,
