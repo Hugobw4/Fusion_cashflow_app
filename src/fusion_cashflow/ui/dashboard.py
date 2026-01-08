@@ -1266,7 +1266,6 @@ main_col = column(
     dscr_toggle_button,
     dscr_table_explanation,
     dscr_table,
-    sizing_mode="stretch_both",
 )
 
 
@@ -1307,7 +1306,6 @@ sens_col = column(
         Spacer(width=20),  # Add some spacing between buttons
     ),
     sens_plot_container,
-    sizing_mode="stretch_both",
 )
 sens_tab = TabPanel(child=sens_col, title="Sensitivity Analysis")
 
@@ -1330,11 +1328,10 @@ else:
             </p>
             """,
             styles=grey_container_style
-        ),
-        sizing_mode="stretch_both"
+        )
     )
 
-costing_col = column(costing_panel, sizing_mode="stretch_both")
+costing_col = column(costing_panel)
 costing_tab = TabPanel(child=costing_col, title="Cost Breakdown")
 
 
@@ -1740,7 +1737,7 @@ styled_tabs = tabs
 
 # --- Layout: sidebar on left, tabs on right ---
 try:
-    outer_container = row(styled_sidebar, styled_tabs, width=1800)
+    outer_container = row(styled_sidebar, styled_tabs)
     
     curdoc().add_root(outer_container)
     curdoc().title = "Fusion Cashflow Dashboard"
