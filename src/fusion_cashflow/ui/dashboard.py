@@ -1685,37 +1685,6 @@ equity_metrics_div.text = render_equity_metrics(outputs)
 get_avg_annual_return("Europe")
 tabs = Tabs(tabs=[main_tab, sens_tab, costing_tab])
 
-
-
-# --- Modern container styles ---
-outer_container_style = {
-    "background": "#00375b",
-    "border-radius": "16px",
-    "box-shadow": "0 2px 8px rgba(0,0,0,0.04)",
-    "border": "1px solid #e0e0e0",
-    "padding": "18px 24px 12px 24px",
-    "margin": "32px auto",
-    "display": "flex",
-    "justify-content": "center",
-    "align-items": "flex-start",
-    "width": "100%",
-    "font-family": "Inter, Helvetica, Arial, sans-serif",
-    "font-weight": "800",
-    "color": "#ffffff",
-    # Remove max-width to allow full width
-}
-main_col_style = {
-    "background": "#00375b",
-    "border-radius": "16px",
-    "box-shadow": "0 2px 8px rgba(0,0,0,0.04)",
-    "border": "1px solid #e0e0e0",
-    "padding": "18px 24px 12px 24px",
-    "margin": "0 0 0 0",
-    "width": "100%",
-    "font-family": "Inter, Helvetica, Arial, sans-serif",
-    "font-weight": "800",
-    "color": "#ffffff",
-}
 sidebar_style = {
     "background": "#00375b",
     "border-radius": "16px",
@@ -1727,9 +1696,6 @@ sidebar_style = {
     "font-weight": "800",
     "color": "#ffffff",
 }
-
-
-
 
 # --- Wrap sidebar in styled container, use tabs directly ---
 styled_sidebar = column(sidebar, width=360, styles=sidebar_style)
@@ -1753,14 +1719,3 @@ try:
 except Exception as e:
     import traceback
     traceback.print_exc()
-
-
-# --- Make all plots/tables fill width ---
-for fig in [annual_fig, cum_fig, dscr_fig]:
-    if hasattr(fig, 'sizing_mode'):
-        fig.sizing_mode = "stretch_width"
-        fig.width = None
-for tbl in [annual_table, cum_table, dscr_table]:
-    if hasattr(tbl, 'sizing_mode'):
-        tbl.sizing_mode = "stretch_width"
-        tbl.width = None
