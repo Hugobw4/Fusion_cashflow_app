@@ -43,6 +43,14 @@ def main():
         from bokeh.application import Application
         from tornado.web import StaticFileHandler
         
+        # Custom static file handler with no-cache headers to prevent stale content
+        class NoCacheStaticFileHandler(StaticFileHandler):
+            def set_extra_headers(self, path):
+                # Prevent caching to avoid duplicate dashboard issues on first load
+                self.set_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.set_header("Pragma", "no-cache")
+                self.set_header("Expires", "0")
+        
         # Create application from the dashboard script
         handler = ScriptHandler(filename=os.path.join(dashboard_path, "dashboard.py"))
         app = Application(handler)
@@ -53,7 +61,7 @@ def main():
                        allow_websocket_origin=["localhost:5011"],
                        extra_patterns=[
                            # Serve our assets at /assets/ to avoid conflicts with Bokeh's /static/
-                           (r"/assets/(.*)", StaticFileHandler, {"path": static_path}),
+                           (r"/assets/(.*)", NoCacheStaticFileHandler, {"path": static_path}),
                        ])
         
         print("✅ Starting Bokeh server with static file serving...")

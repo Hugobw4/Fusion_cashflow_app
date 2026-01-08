@@ -1272,7 +1272,7 @@ grey_container_style = {
 }
 # Create a container for the plot
 sens_fig = placeholder_fig
-sens_plot_container = column(sens_fig, sizing_mode="stretch_width", styles=grey_container_style)
+sens_plot_container = column(sens_fig, styles=grey_container_style)
 sens_col = column(
     Div(
         text="<h3 style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Sensitivity Analysis</h3><p style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif;'>Click the button to recompute sensitivity analysis with current inputs.</p>"
@@ -1685,18 +1685,26 @@ styled_tabs = tabs
 
 # --- Layout: sidebar on left, tabs on right ---
 try:
+    doc = curdoc()
+    
+    # Clear existing roots if any to prevent duplicate dashboard rendering
+    if len(doc.roots) > 0:
+        print(f"DEBUG: Clearing {len(doc.roots)} existing roots to prevent duplication")
+        doc.clear()
+    
     outer_container = row(styled_sidebar, styled_tabs)
     
-    curdoc().add_root(outer_container)
-    curdoc().title = "Fusion Cashflow Dashboard"
+    doc.add_root(outer_container)
+    print(f"DEBUG: Added root - Current number of roots: {len(doc.roots)}")
+    doc.title = "Fusion Cashflow Dashboard"
     
     # Add favicon to the document
-    curdoc().template_variables["favicon"] = "assets/favicon.ico?v=20250807"
+    doc.template_variables["favicon"] = "assets/favicon.ico?v=20250807"
     
     update_dashboard()
     
     # Add periodic callback to check for optimization results (runs every 500ms)
-    curdoc().add_periodic_callback(check_optimization_results, 500)
+    doc.add_periodic_callback(check_optimization_results, 500)
     
 except Exception as e:
     import traceback

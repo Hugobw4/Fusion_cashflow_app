@@ -858,11 +858,10 @@ def plot_sensitivity_heatmap(outputs, config, sensitivity_df):
         x_range=FactorRange(*bands),
         y_range=FactorRange(*drivers[::-1]),  # Reverse order for top-to-bottom
         x_axis_location="above",
-        width=1000,
-        height=400,
+        width=1200,
+        height=500,
         tools="hover,save",
         toolbar_location="right",
-        sizing_mode="scale_width",
         tooltips=[
             ("Driver", "@Driver"),
             ("Change", "@Band"),

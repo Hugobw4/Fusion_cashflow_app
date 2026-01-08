@@ -1098,7 +1098,14 @@ def run_sensitivity_analysis(base_config):
     metrics = []
     # For each driver and band
     for driver, keys in drivers:
-        base_outputs = run_cashflow_scenario(base_config)
+        # Special handling for EPC Cost: force override to prevent auto-recalculation
+        if driver == "EPC Cost":
+            base_config_for_driver = copy.deepcopy(base_config)
+            base_config_for_driver["override_epc"] = True
+            base_outputs = run_cashflow_scenario(base_config_for_driver)
+        else:
+            base_outputs = run_cashflow_scenario(base_config)
+        
         base_metrics = {
             "Scenario": f"{driver} 0%",
             "Driver": driver,
@@ -1124,6 +1131,10 @@ def run_sensitivity_analysis(base_config):
                     else:
                         continue  # Key missing, skip this band
                 config_mod[key] *= 1 + band
+                
+                # Force override_epc when modifying total_epc_cost to prevent auto-recalculation
+                if key == "total_epc_cost":
+                    config_mod["override_epc"] = True
                 
                 # Apply constraints to keep parameters within reasonable bounds
                 if key == "capacity_factor":

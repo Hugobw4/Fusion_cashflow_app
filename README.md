@@ -48,28 +48,35 @@ pip install -r requirements.txt
 
 ### Launch the Interactive Dashboard
 
-The main way to use the application is through the interactive Bokeh dashboard:
+**RECOMMENDED**: Use the following command to run the dashboard with full functionality (logo, favicon, and proper browser caching):
 
 ```bash
-# Option 1: Using the installed package (after pip install -e .)
-python -m bokeh serve src\fusion_cashflow\ui\dashboard.py --show
+# Activate virtual environment first (Windows PowerShell):
+.venv\Scripts\Activate.ps1
+python run_dashboard_with_static.py
 
-# Option 2: If imports fail, set PYTHONPATH first (PowerShell)
-$env:PYTHONPATH="$env:PYTHONPATH;src"
-python -m bokeh serve src\fusion_cashflow\ui\dashboard.py --show
+# OR run directly without activating (Windows):
+.venv\Scripts\python.exe run_dashboard_with_static.py
 
-# Option 3: One-liner with PYTHONPATH (PowerShell)
-$env:PYTHONPATH="src"; python -m bokeh serve src\fusion_cashflow\ui\dashboard.py --show
-
-# Option 4: Alternative using relative imports (if above don't work)
-python -m bokeh serve --allow-websocket-origin=localhost:5006 src\fusion_cashflow\ui\dashboard.py --show
+# macOS/Linux:
+source .venv/bin/activate
+python run_dashboard_with_static.py
 ```
 
-This opens a browser window with:
+This will start the dashboard at: **http://localhost:5011/dashboard**
+
+**Alternative method** (without logo/favicon support):
+```bash
+# Basic method - logo and favicon won't display:
+.venv\Scripts\python.exe -m bokeh serve src\fusion_cashflow\ui\dashboard.py --show
+```
+
+The dashboard provides:
 - **Real-time financial calculations** as you adjust parameters
-- **Multi-tab interface** with main results and sensitivity analysis
+- **Multi-tab interface** with main results, sensitivity analysis, and cost breakdown
 - **Professional visualizations** including cash flow plots, DSCR profiles, and waterfall charts
 - **Data export capabilities** with CSV download buttons
+- **Interactive sensitivity analysis** with heatmap visualizations
 
 ### Generate Static HTML Reports
 
