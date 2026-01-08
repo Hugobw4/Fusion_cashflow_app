@@ -196,47 +196,78 @@ def _create_pie_chart(tree_data, total_epc):
     # Calculate angles for pie slices
     angles = np.array(percentages) / 100 * 2 * np.pi
     
-    # Create figure
+    # Create data source for wedges with hover data
+    wedge_data = {
+        'start_angle': [],
+        'end_angle': [],
+        'color': [],
+        'category': [],
+        'cost': [],
+        'percent': []
+    }
+    
+    # Colors
+    colors = Category20_20[:len(categories)]
+    
+    # Build wedge data
+    start_angle = 0
+    for i, (cat, cost, pct, angle) in enumerate(zip(categories, costs, percentages, angles)):
+        end_angle = start_angle + angle
+        wedge_data['start_angle'].append(start_angle)
+        wedge_data['end_angle'].append(end_angle)
+        wedge_data['color'].append(colors[i])
+        wedge_data['category'].append(cat)
+        wedge_data['cost'].append(f"${cost/1e9:.2f}B")
+        wedge_data['percent'].append(f"{pct:.1f}%")
+        start_angle = end_angle
+    
+    source = ColumnDataSource(wedge_data)
+    
+    # Create figure with hover tool
     p = figure(
         width=400,
         height=400,
         title="Cost Distribution by Category",
         toolbar_location=None,
-        tools="hover",
-        tooltips="@category: $@cost{0,0}/kW (@percent{0.1f}%)",
         x_range=(-1.2, 1.2),
         y_range=(-1.2, 1.2)
     )
     
-    # Colors
-    colors = Category20_20[:len(categories)]
+    # Draw pie slices using data source
+    wedges = p.wedge(
+        x=0, y=0,
+        radius=1,
+        start_angle='start_angle',
+        end_angle='end_angle',
+        color='color',
+        alpha=0.8,
+        source=source
+    )
     
-    # Draw pie slices
-    start_angle = 0
-    for i, (cat, cost, pct, angle) in enumerate(zip(categories, costs, percentages, angles)):
-        end_angle = start_angle + angle
-        
-        # Calculate slice center for label
-        mid_angle = (start_angle + end_angle) / 2
-        label_x = 0.7 * np.cos(mid_angle)
-        label_y = 0.7 * np.sin(mid_angle)
-        
-        # Draw slice
-        p.wedge(
-            x=0, y=0,
-            radius=1,
-            start_angle=start_angle,
-            end_angle=end_angle,
-            color=colors[i],
-            alpha=0.8,
-            legend_label=f"{cat[:20]}..." if len(cat) > 20 else cat
-        )
-        
-        start_angle = end_angle
+    # Add hover tool
+    from bokeh.models import HoverTool
+    hover = HoverTool(
+        tooltips=[
+            ("Category", "@category"),
+            ("Cost", "@cost"),
+            ("Percent", "@percent")
+        ],
+        renderers=[wedges]
+    )
+    p.add_tools(hover)
     
-    # Configure legend
-    p.legend.location = "center_right"
-    p.legend.label_text_font_size = "8pt"
+    # Add legend manually
+    from bokeh.models import Legend, LegendItem
+    legend_items = []
+    for i, cat in enumerate(categories):
+        label = f"{cat[:20]}..." if len(cat) > 20 else cat
+        # Create invisible glyph for legend
+        invisible = p.circle(x=-10, y=-10, size=10, color=colors[i], alpha=0.8, visible=False)
+        legend_items.append(LegendItem(label=label, renderers=[invisible]))
+    
+    legend = Legend(items=legend_items, location="center_right")
+    legend.label_text_font_size = "8pt"
+    p.add_layout(legend, 'right')
     
     # Remove axes
     p.axis.visible = False
@@ -247,16 +278,24 @@ def _create_pie_chart(tree_data, total_epc):
 
 def _create_tree_table(tree_data):
     """
-    Create expandable tree table showing hierarchical costs.
+    Create tree table showing hierarchical costs (all rows expanded for simplicity).
     """
-    # Flatten tree into table rows (top-level only initially)
+    # Flatten tree into all rows (including children)
     rows = []
     for node in tree_data:
+        # Add parent node
         rows.append({
-            'name': node['name'],
+            'name': node['name'].replace('▶ ', '▼ '),  # Show as expanded
             'cost': f"${node['cost']/1e9:.3f}B",
             'percent': f"{node['percent']:.1f}%"
         })
+        # Add all children
+        for child in node.get('children', []):
+            rows.append({
+                'name': child['name'],
+                'cost': f"${child['cost']/1e9:.3f}B",
+                'percent': f"{child['percent']:.1f}%"
+            })
     
     source = ColumnDataSource(data={
         'name': [r['name'] for r in rows],
@@ -274,9 +313,9 @@ def _create_tree_table(tree_data):
         source=source,
         columns=columns,
         width=450,
-        height=400,
+        height=600,  # Taller to show all rows
         index_position=None,
-        selectable=True
+        selectable=False
     )
     
     return table

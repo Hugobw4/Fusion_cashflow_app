@@ -1736,9 +1736,7 @@ sidebar_style = {
 
 # --- Wrap sidebar in styled container, use tabs directly ---
 styled_sidebar = column(sidebar, width=360, sizing_mode="stretch_height", styles=sidebar_style)
-# For main results, make sure the main_col stretches full width
-main_col.sizing_mode = "stretch_width"
-main_col.width = None
+# Use tabs directly without modifying main_col after tab creation
 styled_tabs = tabs  # Do not wrap Tabs in a column
 
 # --- Center everything in a wide, light-grey container ---
