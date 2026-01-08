@@ -181,21 +181,27 @@ def _build_cost_tree(epc_results, total_epc):
 
 def _create_pie_chart(tree_data, total_epc):
     """
-    Create pie chart showing top-level category costs.
+    Create pie chart showing top-level category costs using Bokeh's built-in wedge.
     """
-    # Extract top-level categories only
-    categories = [node['name'].replace('▶ ', '') for node in tree_data]
-    costs = [node['cost'] for node in tree_data]
-    percentages = [node['percent'] for node in tree_data]
+    # Extract top-level categories only (filter out zero-cost items)
+    categories = []
+    costs = []
+    for node in tree_data:
+        if node['cost'] > 0:
+            categories.append(node['name'].replace('▶ ', '').replace('▼ ', ''))
+            costs.append(node['cost'])
     
     # Sort by cost descending
     sorted_indices = np.argsort(costs)[::-1]
     categories = [categories[i] for i in sorted_indices]
     costs = [costs[i] for i in sorted_indices]
-    percentages = [percentages[i] for i in sorted_indices]
     
-    # Calculate angles for pie slices
-    angles = np.array(percentages) / 100 * 2 * np.pi
+    # Recalculate percentages based on actual total of non-zero items
+    actual_total = sum(costs)
+    percentages = [(cost / actual_total * 100) for cost in costs]
+    
+    # Calculate angles - ensure they sum to exactly 2π
+    angles = [pct / 100 * 2 * np.pi for pct in percentages]
     
     # Create data source for wedges with hover data
     wedge_data = {
@@ -210,7 +216,7 @@ def _create_pie_chart(tree_data, total_epc):
     # Colors
     colors = Category20_20[:len(categories)]
     
-    # Build wedge data
+    # Build wedge data - start at top (π/2) and go clockwise
     start_angle = 0
     for i, (cat, cost, pct, angle) in enumerate(zip(categories, costs, percentages, angles)):
         end_angle = start_angle + angle
@@ -242,6 +248,8 @@ def _create_pie_chart(tree_data, total_epc):
         end_angle='end_angle',
         color='color',
         alpha=0.8,
+        line_color='white',
+        line_width=2,
         source=source
     )
     

@@ -1736,13 +1736,11 @@ sidebar_style = {
 
 # --- Wrap sidebar in styled container, use tabs directly ---
 styled_sidebar = column(sidebar, width=360, styles=sidebar_style)
-# Use tabs directly without modifying main_col after tab creation
-styled_tabs = tabs  # Do not wrap Tabs in a column
+styled_tabs = tabs
 
-# --- Center everything in a wide, light-grey container ---
+# --- Layout: sidebar on left, tabs on right ---
 try:
-    # Use simple row layout: sidebar on left, tabs on right
-    outer_container = row(styled_sidebar, styled_tabs)
+    outer_container = row(styled_sidebar, styled_tabs, width=1800)
     
     curdoc().add_root(outer_container)
     curdoc().title = "Fusion Cashflow Dashboard"
