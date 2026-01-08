@@ -27,7 +27,11 @@ from bokeh.models import (
     TableColumn,
     ColumnDataSource,
     Tabs,
+    TabPanel,
 )
+
+# Import costing panel module
+from fusion_cashflow.ui.costing_panel import create_costing_panel
 
 # --- Highlight Facts & Figures ---
 # This Div will be updated with key metrics (LCOE, IRR, NPV, Payback, etc.)
@@ -722,6 +726,13 @@ def update_dashboard():
         "Debt Service": [a + b for a, b in zip(outputs["principal_paid_vec"], outputs["interest_paid_vec"])]
     })
     dscr_source.data = dict(ColumnDataSource(dscr_df).data)
+    
+    # Update costing panel if EPC breakdown is available
+    epc_breakdown = outputs.get("epc_breakdown", {})
+    if epc_breakdown:
+        updated_costing_panel = create_costing_panel(epc_breakdown)
+        costing_col.children = [updated_costing_panel]
+    
     # Replace plots in layout (main tab only)
     main_col.children = [
         highlight_div,
@@ -1304,6 +1315,32 @@ sens_col = column(
 )
 sens_tab = TabPanel(child=sens_col, title="Sensitivity Analysis")
 
+# --- Costing Breakdown Tab ---
+# Create initial costing panel with current outputs
+epc_breakdown = outputs.get("epc_breakdown", {})
+if epc_breakdown:
+    # Create costing panel with full EPC results
+    costing_panel = create_costing_panel(epc_breakdown)
+else:
+    # Show placeholder if no EPC breakdown available
+    costing_panel = column(
+        Div(
+            text="""
+            <h3 style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>
+                EPC Cost Breakdown
+            </h3>
+            <p style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif;'>
+                Enable "Auto-Generate EPC" to view detailed cost breakdown.
+            </p>
+            """,
+            styles=grey_container_style
+        ),
+        sizing_mode="stretch_both"
+    )
+
+costing_col = column(costing_panel, sizing_mode="stretch_both")
+costing_tab = TabPanel(child=costing_col, title="Cost Breakdown")
+
 
 # --- Optimization Function ---
 # Global variables to track optimization state
@@ -1653,7 +1690,7 @@ highlight_div.text = render_highlight_facts(outputs)
 dscr_metrics_div.text = render_dscr_metrics(outputs)
 equity_metrics_div.text = render_equity_metrics(outputs)
 get_avg_annual_return("Europe")
-tabs = Tabs(tabs=[main_tab, sens_tab], sizing_mode="stretch_both")
+tabs = Tabs(tabs=[main_tab, sens_tab, costing_tab], sizing_mode="stretch_both")
 
 
 

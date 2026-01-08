@@ -1059,6 +1059,7 @@ def run_cashflow_scenario(config):
         "project_energy_start_year": project_energy_start_year,
         "year_labels_int": [int(y) if str(y).isdigit() else y for y in year_labels],
         "debt_drawdown_vec": debt_drawdown_vec,
+        "epc_breakdown": config.get("_epc_breakdown", {}),
     }
 
 
