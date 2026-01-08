@@ -20,20 +20,29 @@ import requests
 
 # Try to import power_to_epc module, fall back to manual EPC if not available
 try:
-    import sys
-    import os
-    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-    from power_to_epc import arpa_epc, get_regional_factor, compute_epc
+    from .power_to_epc import arpa_epc, get_regional_factor, compute_epc
     POWER_TO_EPC_AVAILABLE = True
 except ImportError:
-    POWER_TO_EPC_AVAILABLE = False
+    # Fallback for standalone execution
+    try:
+        import sys
+        import os
+        sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+        from power_to_epc import arpa_epc, get_regional_factor, compute_epc
+        POWER_TO_EPC_AVAILABLE = True
+    except ImportError:
+        POWER_TO_EPC_AVAILABLE = False
 
 # Try to import Q model for dynamic engineering Q estimation
 try:
-    from q_model import estimate_q_eng
+    from .q_model import estimate_q_eng
     Q_MODEL_AVAILABLE = True
 except ImportError:
-    Q_MODEL_AVAILABLE = False
+    try:
+        from q_model import estimate_q_eng
+        Q_MODEL_AVAILABLE = True
+    except ImportError:
+        Q_MODEL_AVAILABLE = False
 
 # =============================
 # Dictionaries & Mappings (Do Not Edit)
@@ -650,14 +659,8 @@ def run_cashflow_scenario(config):
             epc_result = compute_epc(power_method, epc_cfg)
             total_epc_cost = epc_result["total_epc"]
             
-            # Store EPC breakdown for analysis (convert to original format for compatibility)
-            config["_epc_breakdown"] = {
-                "total_epc_cost": epc_result["total_epc"],
-                "cost_per_kw": epc_result["epc_per_kw"],
-                "breakdown": epc_result["breakdown"],
-                "power_balance": epc_result.get("power_balance", {}),
-                "method": power_method,
-            }
+            # Store EPC breakdown for analysis (includes full detailed_result)
+            config["_epc_breakdown"] = epc_result
             
         except Exception as e:
             # Fallback to manual EPC if auto-generation fails
