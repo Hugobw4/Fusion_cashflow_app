@@ -1248,26 +1248,8 @@ cumulative_cf_explanation = Div(
 )
 
 # --- Main Results Tab ---
-main_col = column(
-    highlight_div,
-    annual_cf_explanation,
-    annual_fig,
-    annual_toggle_button,
-    annual_table_explanation,
-    annual_table,
-    equity_metrics_div,
-    cumulative_cf_explanation,
-    cum_fig,
-    cum_toggle_button,
-    cum_table_explanation,
-    cum_table,
-    dscr_metrics_div,
-    dscr_fig,
-    dscr_toggle_button,
-    dscr_table_explanation,
-    dscr_table,
-)
-
+# Create empty main_col - will be populated by update_dashboard()
+main_col = column()
 
 # --- Main Results Tab ---
 main_tab = TabPanel(child=main_col, title="Main Results")
