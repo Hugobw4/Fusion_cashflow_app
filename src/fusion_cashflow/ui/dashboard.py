@@ -1686,7 +1686,7 @@ highlight_div.text = render_highlight_facts(outputs)
 dscr_metrics_div.text = render_dscr_metrics(outputs)
 equity_metrics_div.text = render_equity_metrics(outputs)
 get_avg_annual_return("Europe")
-tabs = Tabs(tabs=[main_tab, sens_tab, costing_tab], sizing_mode="stretch_both")
+tabs = Tabs(tabs=[main_tab, sens_tab, costing_tab])
 
 
 
@@ -1735,14 +1735,14 @@ sidebar_style = {
 
 
 # --- Wrap sidebar in styled container, use tabs directly ---
-styled_sidebar = column(sidebar, width=360, sizing_mode="stretch_height", styles=sidebar_style)
+styled_sidebar = column(sidebar, width=360, styles=sidebar_style)
 # Use tabs directly without modifying main_col after tab creation
 styled_tabs = tabs  # Do not wrap Tabs in a column
 
 # --- Center everything in a wide, light-grey container ---
 try:
     # Use simple row layout: sidebar on left, tabs on right
-    outer_container = row(styled_sidebar, styled_tabs, sizing_mode="stretch_both")
+    outer_container = row(styled_sidebar, styled_tabs)
     
     curdoc().add_root(outer_container)
     curdoc().title = "Fusion Cashflow Dashboard"
