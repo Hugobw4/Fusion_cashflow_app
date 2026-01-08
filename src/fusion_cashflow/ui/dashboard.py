@@ -1271,10 +1271,6 @@ main_col = column(
 
 
 # --- Main Results Tab ---
-
-# Use TabPanel for Bokeh 3.x compatibility
-from bokeh.models import TabPanel
-
 main_tab = TabPanel(child=main_col, title="Main Results")
 
 # --- Sensitivity Analysis Tab ---
