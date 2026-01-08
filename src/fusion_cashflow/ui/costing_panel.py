@@ -278,29 +278,27 @@ def _create_pie_chart(tree_data, total_epc):
 
 def _create_tree_table(tree_data):
     """
-    Create tree table showing hierarchical costs (all rows expanded for simplicity).
+    Create expandable tree table with interactive expand/collapse functionality.
     """
-    # Flatten tree into all rows (including children)
+    # Create initial rows (only top-level, all collapsed)
     rows = []
-    for node in tree_data:
-        # Add parent node
+    for i, node in enumerate(tree_data):
         rows.append({
-            'name': node['name'].replace('▶ ', '▼ '),  # Show as expanded
+            'name': f"▶ {node['name'].replace('▶ ', '').replace('▼ ', '')}",
             'cost': f"${node['cost']/1e9:.3f}B",
-            'percent': f"{node['percent']:.1f}%"
+            'percent': f"{node['percent']:.1f}%",
+            'row_id': i,
+            'parent_id': -1,
+            'is_parent': True
         })
-        # Add all children
-        for child in node.get('children', []):
-            rows.append({
-                'name': child['name'],
-                'cost': f"${child['cost']/1e9:.3f}B",
-                'percent': f"{child['percent']:.1f}%"
-            })
     
     source = ColumnDataSource(data={
         'name': [r['name'] for r in rows],
         'cost': [r['cost'] for r in rows],
-        'percent': [r['percent'] for r in rows]
+        'percent': [r['percent'] for r in rows],
+        'row_id': [r['row_id'] for r in rows],
+        'parent_id': [r['parent_id'] for r in rows],
+        'is_parent': [r['is_parent'] for r in rows]
     })
     
     columns = [
@@ -313,10 +311,109 @@ def _create_tree_table(tree_data):
         source=source,
         columns=columns,
         width=450,
-        height=600,  # Taller to show all rows
+        height=400,
         index_position=None,
-        selectable=False
+        selectable=True
     )
+    
+    # Convert tree_data to JavaScript-serializable format
+    tree_js = []
+    for i, node in enumerate(tree_data):
+        children_js = []
+        for child in node.get('children', []):
+            children_js.append({
+                'name': child['name'],
+                'cost': child['cost'],
+                'percent': child['percent']
+            })
+        tree_js.append({
+            'name': node['name'].replace('▶ ', '').replace('▼ ', ''),
+            'cost': node['cost'],
+            'percent': node['percent'],
+            'children': children_js
+        })
+    
+    # JavaScript callback for expanding/collapsing rows
+    from bokeh.models import CustomJS
+    callback = CustomJS(args=dict(source=source, tree_data=tree_js), code="""
+        const selected = source.selected.indices;
+        if (selected.length === 0) return;
+        
+        const click_idx = selected[0];
+        const is_parent = source.data['is_parent'][click_idx];
+        
+        if (!is_parent) {
+            source.selected.indices = [];
+            return;
+        }
+        
+        const clicked_row_id = source.data['row_id'][click_idx];
+        const current_name = source.data['name'][click_idx];
+        const is_expanded = current_name.startsWith('▼');
+        
+        // Build new rows
+        const new_names = [];
+        const new_costs = [];
+        const new_percents = [];
+        const new_row_ids = [];
+        const new_parent_ids = [];
+        const new_is_parents = [];
+        
+        // Track which parents are currently expanded
+        const expanded_parents = new Set();
+        for (let i = 0; i < source.data['name'].length; i++) {
+            if (source.data['is_parent'][i] && source.data['name'][i].startsWith('▼')) {
+                expanded_parents.add(source.data['row_id'][i]);
+            }
+        }
+        
+        // Toggle the clicked parent
+        if (is_expanded) {
+            expanded_parents.delete(clicked_row_id);
+        } else {
+            expanded_parents.add(clicked_row_id);
+        }
+        
+        // Rebuild table
+        for (let i = 0; i < tree_data.length; i++) {
+            const node = tree_data[i];
+            const arrow = expanded_parents.has(i) ? '▼' : '▶';
+            
+            new_names.push(arrow + ' ' + node.name);
+            new_costs.push('$' + (node.cost / 1e9).toFixed(3) + 'B');
+            new_percents.push(node.percent.toFixed(1) + '%');
+            new_row_ids.push(i);
+            new_parent_ids.push(-1);
+            new_is_parents.push(true);
+            
+            // Add children if this parent is expanded
+            if (expanded_parents.has(i)) {
+                for (let j = 0; j < node.children.length; j++) {
+                    const child = node.children[j];
+                    new_names.push('  ' + child.name);
+                    new_costs.push('$' + (child.cost / 1e9).toFixed(3) + 'B');
+                    new_percents.push(child.percent.toFixed(1) + '%');
+                    new_row_ids.push(i * 1000 + j + 1);
+                    new_parent_ids.push(i);
+                    new_is_parents.push(false);
+                }
+            }
+        }
+        
+        // Update source
+        source.data = {
+            'name': new_names,
+            'cost': new_costs,
+            'percent': new_percents,
+            'row_id': new_row_ids,
+            'parent_id': new_parent_ids,
+            'is_parent': new_is_parents
+        };
+        source.change.emit();
+        source.selected.indices = [];
+    """)
+    
+    source.selected.js_on_change('indices', callback)
     
     return table
 

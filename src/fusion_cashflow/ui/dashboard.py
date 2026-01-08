@@ -1741,19 +1741,10 @@ styled_tabs = tabs  # Do not wrap Tabs in a column
 
 # --- Center everything in a wide, light-grey container ---
 try:
-    from bokeh.layouts import grid
-    # Use a responsive grid: sidebar in first column, main content in second column
-    outer_grid = grid([
-        [styled_sidebar, styled_tabs]
-    ], sizing_mode="stretch_both")
-    from bokeh.models import Div
-    outer = column(
-        Div(styles=outer_container_style),
-        outer_grid,
-        sizing_mode="stretch_both"
-    )
-
-    curdoc().add_root(outer)
+    # Use simple row layout: sidebar on left, tabs on right
+    outer_container = row(styled_sidebar, styled_tabs, sizing_mode="stretch_both")
+    
+    curdoc().add_root(outer_container)
     curdoc().title = "Fusion Cashflow Dashboard"
     
     # Add favicon to the document
