@@ -21,8 +21,8 @@ pandas_datareader>=0.10.0,<0.11.0
 # Scientific computing
 scipy>=1.9.0
 
-# Optimization libraries
-nevergrad>=0.12.0
+# NOTE: PyFECONS previously required but now integrated directly
+# Costing algorithms extracted and embedded in src/fusion_cashflow/costing/
 
 # Development and testing (optional)
 pytest>=7.0.0

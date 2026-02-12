@@ -1,0 +1,190 @@
+"""
+Material properties database for costing calculations.
+Extracted from PyFECONS materials.py
+"""
+
+# Material densities (kg/m³) and costs ($/kg)
+MATERIALS = {
+    # Structural materials
+    "SS": {  # Stainless Steel
+        "density": 7900,
+        "cost_per_kg": 10,
+        "manufacturing_factor": 3,
+        "yield_strength_mpa": 450
+    },
+    "FMS": {  # Ferritic-Martensitic Steel
+        "density": 7850,
+        "cost_per_kg": 12,
+        "manufacturing_factor": 3.5,
+        "yield_strength_mpa": 550
+    },
+    "ODS": {  # Oxide Dispersion Strengthened Steel
+        "density": 7800,
+        "cost_per_kg": 50,
+        "manufacturing_factor": 5,
+        "yield_strength_mpa": 650
+    },
+    "V": {  # Vanadium
+        "density": 6100,
+        "cost_per_kg": 280,
+        "manufacturing_factor": 4,
+        "yield_strength_mpa": 500
+    },
+    
+    # First wall materials
+    "W": {  # Tungsten
+        "density": 19250,
+        "cost_per_kg": 40,
+        "manufacturing_factor": 4
+    },
+    "Be": {  # Beryllium
+        "density": 1850,
+        "cost_per_kg": 750,
+        "manufacturing_factor": 3
+    },
+    "Li": {  # Lithium
+        "density": 534,
+        "cost_per_kg": 85,
+        "manufacturing_factor": 1.5
+    },
+    
+    # Breeder materials
+    "Li2TiO3": {  # Lithium Titanate
+        "density": 3430,
+        "cost_per_kg": 25,
+        "manufacturing_factor": 2
+    },
+    "Li4SiO4": {  # Lithium Orthosilicate
+        "density": 2400,
+        "cost_per_kg": 22,
+        "manufacturing_factor": 2
+    },
+    "PbLi": {  # Lead-Lithium
+        "density": 9400,
+        "cost_per_kg": 3.5,
+        "manufacturing_factor": 1.5
+    },
+    
+    # Shield materials
+    "B4C": {  # Boron Carbide (neutron absorber)
+        "density": 2520,
+        "cost_per_kg": 15,
+        "manufacturing_factor": 2
+    },
+    "Pb": {  # Lead (gamma shield)
+        "density": 11340,
+        "cost_per_kg": 2.4,
+        "manufacturing_factor": 1.5
+    },
+    "Concrete": {  # Biological shield
+        "density": 2400,
+        "cost_per_kg": 0.1,
+        "manufacturing_factor": 1.2
+    },
+    
+    # Coolants
+    "He": {  # Helium (gas)
+        "density": 0.1786,  # at STP
+        "cost_per_kg": 8,
+        "manufacturing_factor": 1
+    },
+    "FliBe": {  # Fluorine-Lithium-Beryllium
+        "density": 1940,
+        "cost_per_kg": 180,
+        "manufacturing_factor": 1.5
+    },
+    
+    # Magnet materials
+    "REBCO": {  # REBCO superconductor tape
+        "cost_per_kam": 50,  # $/kA·m (specific to superconductors)
+        "tape_width_m": 0.004,
+        "tape_thickness_m": 0.00013,
+        "critical_current_density": 150  # A/mm² at 18T
+    },
+    "NbTi": {  # Niobium-Titanium
+        "cost_per_kam": 20,
+        "density": 6000
+    },
+    "Nb3Sn": {  # Niobium-Tin
+        "cost_per_kam": 35,
+        "density": 8900
+    },
+    "Cu": {  # Copper (for magnets)
+        "density": 8960,
+        "cost_per_kg": 8,
+        "resistivity_ohm_m": 1.68e-8
+    }
+}
+
+
+def get_material_cost(material_code: str, volume_m3: float = None, mass_kg: float = None) -> float:
+    """
+    Calculate material cost with manufacturing factor.
+    
+    Args:
+        material_code: Material identifier (e.g., 'SS', 'W', 'REBCO')
+        volume_m3: Volume in cubic meters (if known)
+        mass_kg: Mass in kilograms (if known, overrides volume)
+    
+    Returns:
+        Total cost in USD including manufacturing factor
+    """
+    if material_code not in MATERIALS:
+        raise ValueError(f"Unknown material: {material_code}")
+    
+    mat = MATERIALS[material_code]
+    
+    # For superconductors with $/kA·m pricing, use different logic
+    if "cost_per_kam" in mat and "cost_per_kg" not in mat:
+        raise ValueError(f"Material {material_code} requires specialized superconductor costing")
+    
+    # Calculate mass if needed
+    if mass_kg is None:
+        if volume_m3 is None:
+            raise ValueError("Must provide either volume_m3 or mass_kg")
+        mass_kg = volume_m3 * mat["density"]
+    
+    # Apply cost and manufacturing factor
+    raw_cost = mass_kg * mat["cost_per_kg"]
+    total_cost = raw_cost * mat["manufacturing_factor"]
+    
+    return total_cost
+
+
+def get_first_wall_material(first_wall_enum) -> str:
+    """Map first wall enum to material code"""
+    from .enums import BlanketFirstWall
+    
+    mapping = {
+        BlanketFirstWall.TUNGSTEN: "W",
+        BlanketFirstWall.BERYLLIUM: "Be",
+        BlanketFirstWall.LIQUID_LITHIUM: "Li",
+        BlanketFirstWall.FLIBE: "FliBe"
+    }
+    return mapping.get(first_wall_enum, "W")
+
+
+def get_structure_material(structure_enum) -> str:
+    """Map structure enum to material code"""
+    from .enums import StructureMaterial
+    
+    mapping = {
+        StructureMaterial.STAINLESS_STEEL: "SS",
+        StructureMaterial.FERRITIC_STEEL: "FMS",
+        StructureMaterial.ODS_STEEL: "ODS",
+        StructureMaterial.VANADIUM: "V"
+    }
+    return mapping.get(structure_enum, "SS")
+
+
+def get_breeder_material(blanket_type_enum) -> str:
+    """Map blanket type to breeder material code"""
+    from .enums import BlanketType
+    
+    mapping = {
+        BlanketType.SOLID_BREEDER_LI2TIO3: "Li2TiO3",
+        BlanketType.SOLID_BREEDER_LI4SIO4: "Li4SiO4",
+        BlanketType.FLOWING_LIQUID: "PbLi",
+        BlanketType.NO_BREEDER: None
+    }
+    return mapping.get(blanket_type_enum)

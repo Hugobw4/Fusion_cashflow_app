@@ -153,8 +153,8 @@ def assemble_config(x: Dict[str, float], region: str, design_driver: str = "mw")
     base["capacity_factor"] = x["capacity_factor"]
     base["input_debt_pct"] = x["input_debt_pct"]
     
-    # Fixed cost of debt (not optimized)
-    base["cost_of_debt"] = 0.055  # 5.5% debt cost
+    # Fixed loan rate (not optimized)
+    base["loan_rate"] = 0.055  # 5.5% loan rate
     
     base["years_construction"] = int(round(x["years_construction"]))
     base["plant_lifetime"] = int(round(x["plant_lifetime"]))
@@ -162,9 +162,6 @@ def assemble_config(x: Dict[str, float], region: str, design_driver: str = "mw")
     # Set construction start year to a reasonable baseline (2025)
     base["construction_start_year"] = 2025
     base["project_energy_start_year"] = base["construction_start_year"] + base["years_construction"]
-    
-    # Set loan_rate to match cost_of_debt for consistency
-    base["loan_rate"] = 0.055
     
     if design_driver == "mw":
         # MW-driven: Set MW, let EPC auto-generate
@@ -378,7 +375,7 @@ def optimize_single_objective(region: str, objective: str, budget: int, design_d
                 'net_electric_power_mw': net_mw,
                 'capacity_factor': params['capacity_factor'],
                 'input_debt_pct': params['input_debt_pct'],
-                'cost_of_debt': 0.055,  # Fixed at 5.5%
+                'loan_rate': 0.055,  # Fixed at 5.5%
                 'years_construction': int(round(params['years_construction'])),
                 'plant_lifetime': int(round(params['plant_lifetime'])),
                 'IRR': out.get('irr', 0.0),
@@ -450,7 +447,7 @@ def remove_duplicate_scenarios(df: pd.DataFrame, tolerance: float = 0.01) -> pd.
         
     # Create a simplified version for comparison
     numeric_cols = ['total_epc_cost', 'electricity_price', 'net_electric_power_mw', 
-                   'capacity_factor', 'input_debt_pct', 'cost_of_debt',
+                   'capacity_factor', 'input_debt_pct', 'loan_rate',
                    'years_construction', 'plant_lifetime']
     
     unique_scenarios = []

@@ -10,7 +10,8 @@ sys.path.insert(0, os.path.abspath(src_path))
 print(f"Added to sys.path: {os.path.abspath(src_path)}")  # Debug print
 
 import holoviews as hv
-import nevergrad as ng
+
+import pandas as pd
 
 hv.extension("bokeh")
 from bokeh.io import curdoc
@@ -27,7 +28,12 @@ from bokeh.models import (
     TableColumn,
     ColumnDataSource,
     Tabs,
+    TabPanel,
+    RadioButtonGroup,
 )
+
+# Import costing panel module
+from fusion_cashflow.ui.costing_panel import create_costing_panel
 
 # --- Highlight Facts & Figures ---
 # This Div will be updated with key metrics (LCOE, IRR, NPV, Payback, etc.)
@@ -70,7 +76,7 @@ financial_metrics_div = Div(
 # --- DSCR Metrics (for DSCR chart) ---
 dscr_metrics_div = Div(
     text="",
-    width=600,
+    sizing_mode="stretch_width",
     styles={
         "background": "#00375b",
         "border-radius": "12px",
@@ -82,13 +88,14 @@ dscr_metrics_div = Div(
         "border": "1px solid #e0e0e0",
         "color": "#ffffff",
         "font-family": "Inter, Helvetica, Arial, sans-serif",
+        "overflow": "visible",
     },
 )
 
 # --- Equity Metrics (for cumulative cashflow chart) ---
 equity_metrics_div = Div(
     text="",
-    width=600,
+    sizing_mode="stretch_width",
     styles={
         "background": "#00375b",
         "border-radius": "12px",
@@ -145,42 +152,43 @@ def render_highlight_facts(outputs):
             return "N/A"
 
     html = f"""
+    <style>
+      .main-kpi {{ position:relative; display:inline-block; margin-right:30px; }}
+      .main-kpi .main-tip {{
+        visibility:hidden; opacity:0; transition:opacity 0.2s;
+        position:absolute; bottom:110%; left:50%; transform:translateX(-50%);
+        background:#001e3c; color:#ffffff; font-size:11px; font-weight:400;
+        padding:6px 10px; border-radius:6px; white-space:nowrap;
+        box-shadow:0 2px 8px rgba(0,0,0,0.3); z-index:10;
+        pointer-events:none;
+      }}
+      .main-kpi:hover .main-tip {{ visibility:visible; opacity:1; }}
+      .main-kpi .kpi-lbl {{
+        cursor:help; background:rgba(160,196,255,0.15); padding:2px 6px;
+        border-radius:4px; transition:background 0.2s;
+      }}
+      .main-kpi:hover .kpi-lbl {{ background:rgba(160,196,255,0.3); }}
+    </style>
     <div style='display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 800; white-space: nowrap; padding: 0 20px;'>
-        <div style='margin-right: 30px;'>
-            <span title='Levelized Cost of Energy - The cost per MWh to build and operate the power plant over its lifetime' 
-                  style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-                  onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-                <b>LCOE<sup>?</sup>:</b>
-            </span> 
+        <div class='main-kpi'>
+            <span class='kpi-lbl'><b>LCOE<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'> {fmt(lcoe_val, 'currency_detailed')} / MWh</span>
+            <div class='main-tip'>Levelized Cost of Energy &mdash; cost per MWh over plant lifetime</div>
         </div>
-        <div style='margin-right: 30px;'>
-            <span title='Internal Rate of Return - The discount rate that makes the NPV of all cash flows equal to zero' 
-                  style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-                  onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-                <b>IRR<sup>?</sup>:</b>
-            </span> 
+        <div class='main-kpi'>
+            <span class='kpi-lbl'><b>IRR<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'> {fmt(irr, 'percent')}</span>
+            <div class='main-tip'>Internal Rate of Return &mdash; discount rate making NPV = 0</div>
         </div>
-        <div style='margin-right: 30px;'>
-            <span title='Net Present Value - The present value of all future cash flows minus the initial investment' 
-                  style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-                  onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-                <b>NPV<sup>?</sup>:</b>
-            </span> 
+        <div class='main-kpi'>
+            <span class='kpi-lbl'><b>NPV<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'> {fmt(npv, 'currency')}</span>
+            <div class='main-tip'>Net Present Value &mdash; present value of all future cash flows minus investment</div>
         </div>
-        <div>
-            <span title='Total Project Payback Period - The time it takes for the cumulative unlevered cash flows to equal the total project investment (includes all costs, debt and equity)' 
-                  style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-                  onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-                <b>Payback<sup>?</sup>:</b>
-            </span> 
+        <div class='main-kpi' style='margin-right:0;'>
+            <span class='kpi-lbl'><b>Payback<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'> {fmt(payback, 'years')}</span>
+            <div class='main-tip'>Total project payback period &mdash; time for cumulative cash flows to equal investment</div>
         </div>
     </div>
     """
@@ -202,25 +210,34 @@ def render_dscr_metrics(outputs):
         return val
 
     html = f"""
+    <style>
+      .dscr-kpi {{ position:relative; display:inline-block; }}
+      .dscr-kpi .dscr-tip {{
+        visibility:hidden; opacity:0; transition:opacity 0.2s;
+        position:absolute; bottom:110%; left:50%; transform:translateX(-50%);
+        background:#001e3c; color:#ffffff; font-size:11px; font-weight:400;
+        padding:6px 10px; border-radius:6px; white-space:nowrap;
+        box-shadow:0 2px 8px rgba(0,0,0,0.3); z-index:10;
+        pointer-events:none;
+      }}
+      .dscr-kpi:hover .dscr-tip {{ visibility:visible; opacity:1; }}
+      .dscr-kpi .dscr-lbl {{
+        cursor:help; background:rgba(0,55,91,0.1); padding:2px 6px;
+        border-radius:4px; transition:background 0.2s;
+      }}
+      .dscr-kpi:hover .dscr-lbl {{ background:rgba(0,55,91,0.2); }}
+    </style>
     <div style='font-size: 14px; margin-bottom: 8px; color: #ffffff; font-weight: 600;'>DEBT SERVICE COVERAGE RATIO PROFILE</div>
     <div style='display: flex; gap: 24px;'>
-        <div>
-            <span title='Minimum Debt Service Coverage Ratio - The lowest ratio of Net Operating Income to debt service payments. Higher is better (>1.25 typically required)' 
-                  style='cursor: help; background: rgba(0, 55, 91, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(0, 55, 91, 0.2)'" 
-                  onmouseout="this.style.background='rgba(0, 55, 91, 0.1)'">
-                <b>Min DSCR<sup>?</sup>:</b>
-            </span> 
+        <div class='dscr-kpi'>
+            <span class='dscr-lbl'><b>Min DSCR<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'>{fmt(min_dscr, 'ratio')}</span>
+            <div class='dscr-tip'>Minimum DSCR &mdash; lowest NOI-to-debt-service ratio (&gt;1.25 typically required)</div>
         </div>
-        <div>
-            <span title='Average Debt Service Coverage Ratio - The average ratio of Net Operating Income to debt service payments over the loan term' 
-                  style='cursor: help; background: rgba(0, 55, 91, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(0, 55, 91, 0.2)'" 
-                  onmouseout="this.style.background='rgba(0, 55, 91, 0.1)'">
-                <b>Avg DSCR<sup>?</sup>:</b>
-            </span> 
+        <div class='dscr-kpi'>
+            <span class='dscr-lbl'><b>Avg DSCR<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'>{fmt(avg_dscr, 'ratio')}</span>
+            <div class='dscr-tip'>Average DSCR &mdash; mean NOI-to-debt-service ratio over loan term</div>
         </div>
     </div>
     """
@@ -241,24 +258,33 @@ def render_equity_metrics(outputs):
         return val
 
     html = f"""
+    <style>
+      .eq-kpi {{ position:relative; display:inline-block; }}
+      .eq-kpi .eq-tip {{
+        visibility:hidden; opacity:0; transition:opacity 0.2s;
+        position:absolute; bottom:110%; left:50%; transform:translateX(-50%);
+        background:#001e3c; color:#ffffff; font-size:11px; font-weight:400;
+        padding:6px 10px; border-radius:6px; white-space:nowrap;
+        box-shadow:0 2px 8px rgba(0,0,0,0.3); z-index:10;
+        pointer-events:none;
+      }}
+      .eq-kpi:hover .eq-tip {{ visibility:visible; opacity:1; }}
+      .eq-kpi .eq-lbl {{
+        cursor:help; background:rgba(0,55,91,0.1); padding:2px 6px;
+        border-radius:4px; transition:background 0.2s;
+      }}
+      .eq-kpi:hover .eq-lbl {{ background:rgba(0,55,91,0.2); }}
+    </style>
     <div style='font-size: 14px; margin-bottom: 8px; color: #ffffff; font-weight: 600;'>CUMULATIVE CASHFLOW PERFORMANCE</div>
-    <span title='Equity Multiple - The ratio of cumulative distributions to initial equity investment. Shows total return on equity over project life' 
-          style='cursor: help; background: rgba(0, 55, 91, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-          onmouseover="this.style.background='rgba(0, 55, 91, 0.2)'" 
-          onmouseout="this.style.background='rgba(0, 55, 91, 0.1)'">
-        <b>Equity Multiple<sup>?</sup>:</b>
-    </span> 
-    <span style='color:#ffffff;font-weight:800'>{fmt(equity_mult, 'mult')}</span>
+    <div class='eq-kpi'>
+        <span class='eq-lbl'><b>Equity Multiple<sup>?</sup>:</b></span>
+        <span style='color:#ffffff;font-weight:800'>{fmt(equity_mult, 'mult')}</span>
+        <div class='eq-tip'>Equity Multiple &mdash; cumulative distributions / initial equity investment</div>
+    </div>
     """
     return html
 
 
-import holoviews as hv
-
-hv.extension("bokeh")
-from bokeh.models import (
-    Div,
-)
 from fusion_cashflow.core.cashflow_engine import (
     get_default_config,
     get_default_config_by_power_method,
@@ -274,17 +300,7 @@ from fusion_cashflow.visualization.bokeh_plots import (
     plot_sensitivity_heatmap,
 )
 
-# Import optimisation tools
-try:
-    scripts_path = os.path.join(current_dir, "..", "..", "..", "scripts")
-    sys.path.insert(0, os.path.abspath(scripts_path))
-    from optimization_tools import single_objective_fitness
-    OPTIMIZATION_AVAILABLE = True
-except ImportError as e:
-    print(f"Warning: Could not import optimisation_tools: {e}")
-    OPTIMIZATION_AVAILABLE = False
-
-import pandas as pd
+OPTIMIZATION_AVAILABLE = True
 from bokeh.events import ButtonClick
 
 # --- Styling ---
@@ -407,15 +423,14 @@ def make_widgets(config):
         value=config["plant_lifetime"],
         step=1,
     )
-    widgets["power_method"] = Select(
-        title="Power Method", value=config["power_method"], options=["MFE", "IFE", "PWR"]
+    widgets["reactor_type"] = Select(
+        title="Reactor Type",
+        value=config.get("reactor_type", "MFE Tokamak"),
+        options=["MFE Tokamak", "IFE Laser"]
     )
-    widgets["net_electric_power_mw"] = Slider(
-        title="Net Electric Power (MW)",
-        start=10,
-        end=4000,
-        value=config["net_electric_power_mw"],
-        step=10,
+    widgets["net_electric_power_mw"] = Div(
+        text="<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Net Electric Output (MW):</b> <span style='color:#4CAF50;'>Calculating...</span></div>",
+        width=300,
     )
     widgets["capacity_factor"] = Slider(
         title="Capacity Factor",
@@ -426,23 +441,57 @@ def make_widgets(config):
         format="0%",
     )
     widgets["fuel_type"] = Select(
-        title="Fuel Type", value=config["fuel_type"], options=[
-            "Lithium-Solid", 
-            "Lithium-Liquid", 
-            "Tritium",
-            "Fission Benchmark Enriched Uranium"
+        title="Fuel Type",
+        value=config.get("fuel_type", "DT (Deuterium-Tritium)"),
+        options=[
+            "DT (Deuterium-Tritium)",
+            "DD (Deuterium-Deuterium)",
+            "DHe3 (Deuterium-Helium-3)",
+            "pB11 (Proton-Boron-11)"
         ]
     )
+    
+    # NOAK/FOAK Selection
+    widgets["noak"] = RadioButtonGroup(
+        labels=["NOAK (Nth-of-a-kind)", "FOAK (First-of-a-kind)"],
+        active=0 if config.get("noak", True) else 1,
+        width=310
+    )
+    
+    # Power Balance Parameters
+    widgets["fusion_power_mw"] = Slider(
+        title="Fusion Power Output (MW)",
+        start=100,
+        end=3000,
+        value=config.get("fusion_power_mw", 500),
+        step=10,
+    )
+    widgets["q_plasma"] = Slider(
+        title="Plasma Q (Fusion Gain)",
+        start=0.001,
+        end=50,
+        value=config.get("q_plasma", 10),
+        step=0.001,
+    )
+    widgets["derived_heating_power"] = Div(
+        text="<div style='color:#aaa; font-size:13px; margin:2px 0;'>Derived Heating Power: 50.0 MW</div>",
+        width=300,
+    )
+    widgets["thermal_efficiency"] = Slider(
+        title="Thermal-to-Electric Efficiency",
+        start=0.35,
+        end=0.55,
+        value=config.get("thermal_efficiency", 0.46),
+        step=0.01,
+        format="0.0%",
+    )
+    widgets["power_balance_info"] = Div(
+        text="<div style='color:#ffffff; font-size:14px; margin:10px 0; padding:8px; background:#004d73; border-radius:8px;'><b>Power Balance:</b> P_heating = P_fusion / Q<br>Q_eng = P_net / P_recirculating</div>",
+        width=300,
+    )
+    
     widgets["input_debt_pct"] = Slider(
         title="Debt %", start=0.0, end=1.0, value=config["input_debt_pct"], step=0.01, format="0%"
-    )
-    widgets["cost_of_debt"] = Slider(
-        title="Cost of Debt",
-        start=0.0,
-        end=0.2,
-        value=config["cost_of_debt"],
-        step=0.001,
-        format="0.0%",
     )
     widgets["loan_rate"] = Slider(
         title="Loan Rate", start=0.0, end=0.2, value=config["loan_rate"], step=0.001, format="0.0%"
@@ -469,41 +518,173 @@ def make_widgets(config):
         value=config["grace_period_years"],
         step=1,
     )
-    # EPC Cost Control Toggle
+    
+    # ===== MATERIAL SELECTION SECTION =====
+    widgets["materials_header"] = Div(
+        text="<div style='font-size:16px; font-weight:bold; margin-top:20px; margin-bottom:10px; color:#ffffff;'>Material Selection</div>",
+        width=320,
+    )
+    widgets["first_wall_material"] = Select(
+        title="First Wall Material",
+        value=config.get("first_wall_material", "Tungsten"),
+        options=["Tungsten", "Beryllium", "Liquid Lithium", "FLiBe"]
+    )
+    widgets["blanket_type"] = Select(
+        title="Blanket Type",
+        value=config.get("blanket_type", "Solid Breeder (Li2TiO3)"),
+        options=[
+            "Solid Breeder (Li2TiO3)",
+            "Solid Breeder (Li4SiO4)",
+            "Flowing Liquid Breeder (PbLi)",
+            "No Breeder (Aneutronic)"
+        ]
+    )
+    widgets["structure_material"] = Select(
+        title="Structure Material",
+        value=config.get("structure_material", "Ferritic Steel (FMS)"),
+        options=[
+            "Stainless Steel (SS)",
+            "Ferritic Steel (FMS)",
+            "ODS Steel",
+            "Vanadium"
+        ]
+    )
+    widgets["material_cost_preview"] = Div(
+        text="<div style='color:#aaa; font-size:12px; margin:5px 0;'>Material costs will be calculated...</div>",
+        width=320,
+    )
+    
+    # ===== MAGNET SECTION (MFE ONLY) =====
+    widgets["magnet_header"] = Div(
+        text="<div style='font-size:16px; font-weight:bold; margin-top:20px; margin-bottom:10px; color:#ffffff;'>Magnet System (MFE Only)</div>",
+        width=320,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    widgets["magnet_technology"] = Select(
+        title="Magnet Technology",
+        value=config.get("magnet_technology", "HTS REBCO"),
+        options=[
+            "HTS REBCO",
+            "HTS Cable-in-Conduit",
+            "LTS NbTi",
+            "LTS Nb3Sn",
+            "Copper (resistive)"
+        ],
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    widgets["toroidal_field_tesla"] = Slider(
+        title="Peak Toroidal Field (Tesla)",
+        start=5,
+        end=20,
+        value=config.get("toroidal_field_tesla", 12),
+        step=0.5,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    widgets["n_tf_coils"] = Slider(
+        title="Number of TF Coils",
+        start=8,
+        end=24,
+        value=config.get("n_tf_coils", 12),
+        step=2,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    widgets["tape_width_m"] = Slider(
+        title="HTS Tape Width (mm)",
+        start=3,
+        end=12,
+        value=config.get("tape_width_m", 4),
+        step=0.5,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and "HTS" in config.get("magnet_technology", "HTS REBCO")
+    )
+    widgets["coil_thickness_m"] = Slider(
+        title="Coil Radial Thickness (m)",
+        start=0.15,
+        end=0.5,
+        value=config.get("coil_thickness_m", 0.25),
+        step=0.05,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    widgets["magnet_cost_preview"] = Div(
+        text="<div style='color:#aaa; font-size:12px; margin:5px 0;'>Magnet costs will be calculated...</div>",
+        width=320,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    
+    # ===== IFE SECTION (IFE ONLY) =====
+    widgets["ife_header"] = Div(
+        text="<div style='font-size:16px; font-weight:bold; margin-top:20px; margin-bottom:10px; color:#ffffff;'>IFE Driver System</div>",
+        width=320,
+        visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak"
+    )
+    widgets["chamber_radius_m"] = Slider(
+        title="Chamber Radius (m)",
+        start=5,
+        end=15,
+        value=config.get("chamber_radius_m", 8),
+        step=0.5,
+        visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak"
+    )
+    widgets["driver_energy_mj"] = Slider(
+        title="Driver Energy per Shot (MJ)",
+        start=1,
+        end=10,
+        value=config.get("driver_energy_mj", 2),
+        step=0.1,
+        visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak"
+    )
+    widgets["repetition_rate_hz"] = Slider(
+        title="Target Repetition Rate (Hz)",
+        start=1,
+        end=20,
+        value=config.get("repetition_rate_hz", 10),
+        step=1,
+        visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak"
+    )
+    widgets["target_gain"] = Slider(
+        title="Target Gain",
+        start=10,
+        end=100,
+        value=config.get("target_gain", 50),
+        step=5,
+        visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak"
+    )
+    
+    # ===== EPC OVERRIDE =====
     widgets["override_epc"] = Checkbox(
-        label="Manual EPC Cost Override", active=config.get("override_epc", False)
+        label="Manual EPC Override", active=config.get("override_epc", False)
     )
-    widgets["total_epc_cost"] = Slider(
-        title="Total EPC Cost ($)",
-        start=1e9,
-        end=5e10,
-        value=config["total_epc_cost"],
-        step=1e8,
-        format="0,0",
-        visible=config.get("override_epc", False),  # Initially hidden unless override is active
+    widgets["override_epc_value"] = TextInput(
+        title="Override EPC Cost ($)",
+        value=str(int(config.get("override_epc_value", 5000000000))),
+        visible=config.get("override_epc", False),
     )
-    # Q Engineering Control Toggle
-    widgets["override_q_eng"] = Checkbox(
-        label="Manual Q Engineering Override", active=config.get("override_q_eng", False)
+    
+    # ===== Q ENGINEERING SECTION (Updated to Calculated/Manual mode) =====
+    widgets["q_eng_mode"] = Select(
+        title="Q Engineering Mode",
+        value=config.get("q_eng_mode", "Calculated (from physics)"),
+        options=["Calculated (from physics)", "Manual Override"]
+    )
+    widgets["calculated_q_eng_display"] = Div(
+        text="<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Calculated Q_eng:</b> <span style='color:#4CAF50;'>Calculating...</span></div>",
+        width=400,
     )
     widgets["manual_q_eng"] = Slider(
-        title="Q Engineering Value",
+        title="Manual Q Engineering Value",
         start=1.0,
         end=15.0,
         value=config.get("manual_q_eng", 4.0),
         step=0.1,
-        visible=config.get("override_q_eng", False),  # Initially hidden unless override is active
+        visible=config.get("q_eng_mode", "Calculated (from physics)") == "Manual Override"
     )
     
     # Display widgets for auto-calculated values (read-only)
     widgets["auto_epc_display"] = Div(
-        text="<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Auto EPC Cost:</b> Calculating...</div>",
+        text="<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Total EPC Cost:</b> Calculating...</div>",
         width=400,
     )
-    widgets["auto_q_eng_display"] = Div(
-        text="<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Auto Q Engineering:</b> Calculating...</div>",
-        width=400,
-    )
+    # Removed auto_q_eng_display - replaced by calculated_q_eng_display above
+    
     widgets["extra_capex_pct"] = Slider(
         title="Extra CapEx %",
         start=0.0,
@@ -512,21 +693,25 @@ def make_widgets(config):
         step=0.01,
         format="0%",
     )
+    # NOTE: Contingency sliders removed - contingency is handled by CAS 29 in costing module
+    # Keeping hidden widgets so get_config_from_widgets doesn't break
     widgets["project_contingency_pct"] = Slider(
-        title="Project Contingency %",
+        title="Project Contingency % (CAS 29)",
         start=0.0,
         end=0.5,
-        value=config["project_contingency_pct"],
+        value=0.0,
         step=0.01,
         format="0%",
+        visible=False,
     )
     widgets["process_contingency_pct"] = Slider(
-        title="Process Contingency %",
+        title="Process Contingency % (CAS 29)",
         start=0.0,
         end=0.5,
-        value=config["process_contingency_pct"],
+        value=0.0,
         step=0.01,
         format="0%",
+        visible=False,
     )
     widgets["fixed_om_per_mw"] = Slider(
         title="Fixed O&M per MW ($)",
@@ -597,6 +782,28 @@ def make_widgets(config):
         step=0.01,
     )
     
+    # ===== INDUSTRIAL HEAT SALES =====
+    widgets["enable_heat_sales"] = Checkbox(
+        label="Enable Industrial Heat Sales", active=config.get("enable_heat_sales", False)
+    )
+    widgets["heat_sales_fraction"] = Slider(
+        title="Heat Sales Fraction",
+        start=0.0,
+        end=0.50,
+        value=config.get("heat_sales_fraction", 0.10),
+        step=0.01,
+        format="0%",
+        visible=config.get("enable_heat_sales", False),
+    )
+    widgets["heat_price_per_mwh_th"] = Slider(
+        title="Heat Price ($/MWh_th)",
+        start=5,
+        end=100,
+        value=config.get("heat_price_per_mwh_th", 30),
+        step=1,
+        visible=config.get("enable_heat_sales", False),
+    )
+    
     # Optimization widgets
     widgets["optimise_target"] = Select(
         title="Target metric",
@@ -607,11 +814,12 @@ def make_widgets(config):
         label="Optimise", 
         button_type="success",
         width=120,
-        disabled=not OPTIMIZATION_AVAILABLE
+        disabled=not OPTIMIZATION_AVAILABLE,
+        margin=(18, 0, 0, 0),
     )
     widgets["optimise_status"] = Div(
-        text="Ready to optimise" if OPTIMIZATION_AVAILABLE else "Optimisation not available",
-        styles={"color": "#ffffff" if OPTIMIZATION_AVAILABLE else "#ff6b6b", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
+        text="<div style='padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.08);color:#ffffff;font-size:13px;font-weight:600;font-family:Inter,Helvetica,Arial,sans-serif;'>Ready to optimise</div>" if OPTIMIZATION_AVAILABLE else "<div style='padding:8px 12px;border-radius:8px;background:rgba(255,100,100,0.12);color:#ff6b6b;font-size:13px;font-weight:600;font-family:Inter,Helvetica,Arial,sans-serif;'>Optimisation not available</div>",
+        width=280,
     )
     
     return widgets
@@ -625,11 +833,53 @@ def get_config_from_widgets(widgets):
             config[k] = w.value
         elif isinstance(w, Checkbox):
             config[k] = w.active
-    # Force manual EPC when benchmarking PWR, but allow user to adjust the amount
-    if config.get("power_method") == "PWR":
-        config["override_epc"] = True
-        # Use the widget value for total_epc_cost (don't hardcode it)
-        # This allows users to adjust PWR EPC cost via the slider
+        elif isinstance(w, RadioButtonGroup):
+            # Handle RadioButtonGroup (e.g., noak: 0=True, 1=False)
+            if k == "noak":
+                config[k] = (w.active == 0)  # 0 index = NOAK (True), 1 index = FOAK (False)
+            else:
+                config[k] = w.active
+    
+    # Map UI values to costing module enum codes
+    if "fuel_type" in config:
+        fuel_map = {
+            "DT (Deuterium-Tritium)": "DT",
+            "DD (Deuterium-Deuterium)": "DD",
+            "DHe3 (Deuterium-Helium-3)": "DHE3",
+            "pB11 (Proton-Boron-11)": "PB11"
+        }
+        config["fuel_type_code"] = fuel_map.get(config["fuel_type"], "DT")
+    
+    # Map reactor_type to MFE/IFE codes
+    if "reactor_type" in config:
+        reactor_map = {
+            "MFE Tokamak": "MFE",
+            "IFE Laser": "IFE"
+        }
+        config["reactor_type_code"] = reactor_map.get(config["reactor_type"], "MFE")
+        
+        # Set power_method using same canonical codes as reactor_type_code
+        config["power_method"] = reactor_map.get(config["reactor_type"], "MFE")
+    
+    # Derive auxiliary_power_mw from fusion_power / q_plasma
+    fusion_mw = config.get("fusion_power_mw", 500)
+    q_plasma = config.get("q_plasma", 10)
+    if q_plasma > 0:
+        config["auxiliary_power_mw"] = fusion_mw / q_plasma
+    else:
+        config["auxiliary_power_mw"] = 50  # safety fallback
+    
+    # Convert tape_width from mm to m if present
+    if "tape_width_m" in config:
+        config["tape_width_m_actual"] = config["tape_width_m"] / 1000.0  # mm to m
+    
+    # Parse override_epc_value from TextInput string to float
+    if "override_epc_value" in config and isinstance(config["override_epc_value"], str):
+        try:
+            config["override_epc_value"] = float(config["override_epc_value"])
+        except ValueError:
+            config["override_epc_value"] = 5_000_000_000
+    
     return config
 
 
@@ -642,54 +892,126 @@ DEBOUNCE_DELAY = 0.8  # seconds
 def update_dashboard():
     config = get_config_from_widgets(widgets)
     
-    # Skip fusion auto-calcs when benchmarking a fixed PWR plant
-    tech = config["power_method"]
-    if tech == "PWR":
-        widgets["auto_q_eng_display"].text = (
-            "<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
-            "<b>Auto Q Engineering:</b> N/A (fixed benchmark)</div>")
-        # Show the actual EPC cost from the slider for PWR
-        actual_epc_cost = config["total_epc_cost"]
-        widgets["auto_epc_display"].text = (
-            "<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
-            f"<b>Auto EPC Cost:</b> ${actual_epc_cost/1e9:.1f} B (manual override)</div>")
-    else:
-        # Calculate auto-generated values for display
-        try:
-            from fusion_cashflow.core.power_to_epc import arpa_epc, get_regional_factor
-            from fusion_cashflow.core.q_model import estimate_q_eng
-            
-            net_mw = config["net_electric_power_mw"]
-            location = config["project_location"]
-            years_construction = (
-                config["project_energy_start_year"] - config["construction_start_year"]
-            )
-            
-            # Auto Q (fusion only)
-            auto_q_eng = estimate_q_eng(net_mw, tech)
-            widgets["auto_q_eng_display"].text = (
-                f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
-                f"<b>Auto Q Engineering:</b> {auto_q_eng:.2f}</div>")
-            
-            # Auto EPC (fusion only)
-            region_factor = get_regional_factor(location)
-            epc_result = arpa_epc(
-                net_mw=net_mw,
-                years=years_construction,
-                tech=tech,
-                region_factor=region_factor,
-                noak=True,
-            )
-            auto_epc_cost   = epc_result["total_epc_cost"]
-            auto_epc_per_kw = epc_result["cost_per_kw"]
+    # Calculate values using new costing system
+    try:
+        if config.get("override_epc", False):
+            # Manual EPC override — skip costing, show override value
+            override_val = config.get("override_epc_value", 5_000_000_000)
             widgets["auto_epc_display"].text = (
                 f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
-                f"<b>Auto EPC Cost:</b> ${auto_epc_cost/1e9:.2f} B "
+                f"<b>EPC Cost (Manual):</b> <span style='color:#FFC107;'>${override_val/1e9:.2f} B</span></div>")
+            widgets["calculated_q_eng_display"].text = (
+                f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+                f"<b>Q_eng:</b> <span style='color:#FFC107;'>Manual mode</span></div>")
+            widgets["net_electric_power_mw"].text = (
+                f"<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+                f"<b>Net Electric Output (MW):</b> <span style='color:#FFC107;'>Manual mode</span></div>")
+        else:
+            from fusion_cashflow.core.power_to_epc import compute_epc
+            from fusion_cashflow.costing import compute_total_epc_cost
+            
+            # Get costing results
+            epc_result = compute_epc(config)
+        
+            # Feed costing P_net back into config for cashflow engine
+            p_net_from_costing = epc_result.get("power_balance", {}).get("p_net", 400)
+            config["net_electric_power_mw"] = p_net_from_costing
+            
+            # Update Net Electric Output display
+            p_net_color = "#4CAF50" if p_net_from_costing > 100 else "#FF5252"
+            widgets["net_electric_power_mw"].text = (
+                f"<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+                f"<b>Net Electric Output (MW):</b> <span style='color:{p_net_color};'>{p_net_from_costing:.0f}</span></div>")
+            
+            # Update Q_eng display
+            q_eng_value = epc_result.get("power_balance", {}).get("q_eng", 0)
+            q_color = "#4CAF50" if q_eng_value > 1.5 else ("#FFC107" if q_eng_value > 1.0 else "#FF5252")
+            widgets["calculated_q_eng_display"].text = (
+                f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+                f"<b>Calculated Q_eng:</b> <span style='color:{q_color};'>{q_eng_value:.2f}</span></div>")
+            
+            # Update EPC display
+            auto_epc_cost = epc_result.get("total_epc", 0)
+            auto_epc_per_kw = epc_result.get("epc_per_kw", 0)
+            widgets["auto_epc_display"].text = (
+                f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+                f"<b>Total EPC Cost:</b> ${auto_epc_cost/1e9:.2f} B "
                 f"(${auto_epc_per_kw:,} / kW)</div>")
-                
-        except Exception as e:
-            widgets["auto_q_eng_display"].text = f"<div style='margin-bottom:10px; color:#ff6b6b; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Auto Q Engineering:</b> Error: {str(e)[:50]}...</div>"
-            widgets["auto_epc_display"].text = f"<div style='margin-bottom:10px; color:#ff6b6b; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Auto EPC Cost:</b> Error: {str(e)[:50]}...</div>"
+            
+            # Update derived heating power display
+            p_heating_derived = config.get("auxiliary_power_mw", 50)
+            widgets["derived_heating_power"].text = (
+                f"<div style='color:#aaa; font-size:13px; margin:2px 0;'>Derived Heating Power: {p_heating_derived:.1f} MW</div>")
+            
+            # Update material cost preview
+            # Sum of firstwall + blanket + structure + shield from detailed result
+            detailed = epc_result.get("detailed_result", {})
+            cas22_details = detailed.get("CAS 22 - Reactor Equipment", {})
+            material_cost = (
+                cas22_details.get("First Wall", 0) +
+                cas22_details.get("Blanket", 0) +
+                cas22_details.get("Shield", 0)
+            )
+            widgets["material_cost_preview"].text = (
+                f"<div style='color:#aaa; font-size:12px; margin:5px 0;'>Estimated material cost: ${material_cost/1e6:.1f}M</div>")
+            
+            # Update magnet cost preview (MFE only)
+            if config.get("reactor_type") == "MFE Tokamak":
+                detailed = epc_result.get("detailed_result", {})
+                cas22 = detailed.get("CAS 22 - Reactor Equipment", {})
+                magnet_cost = cas22.get("Magnets", 0)
+                widgets["magnet_cost_preview"].text = (
+                    f"<div style='color:#aaa; font-size:12px; margin:5px 0;'>Estimated magnet cost: ${magnet_cost/1e6:.1f}M</div>")
+            
+            # Update expert geometry displays
+            if config.get("use_expert_geometry"):
+                if config.get("reactor_type") == "MFE Tokamak":
+                    total_r = (config.get("expert_major_radius_m", 3) + 
+                              config.get("expert_plasma_t", 1.1) +
+                              config.get("expert_vacuum_t", 0.1) +
+                              config.get("expert_firstwall_t", 0.02) +
+                              config.get("expert_blanket_t", 0.8) +
+                              config.get("expert_reflector_t", 0.2) +
+                              config.get("expert_ht_shield_t", 0.2) +
+                              config.get("expert_structure_t", 0.2) +
+                              config.get("expert_gap_t", 0.5) +
+                              config.get("expert_vessel_t", 0.2) +
+                              config.get("expert_gap2_t", 0.5) +
+                              config.get("expert_lt_shield_t", 0.3) +
+                              config.get("expert_coil_t", 1.0) +
+                              config.get("expert_bio_shield_t", 1.0))
+                    widgets["total_radius_display"].text = (
+                        f"<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px; "
+                        f"font-family:Inter,Helvetica,Arial,sans-serif;'>"
+                        f"<span style='font-size:14px; font-weight:700; color:#00375b;'>Total Machine Radius</span>"
+                        f"<span style='font-size:20px; font-weight:800; color:#00375b;'>{total_r:.2f} m</span></div>")
+                    # Update group subtotals
+                    _g1_txt = f"Core: R\u2080 = {config.get('expert_major_radius_m',3):.1f} m, a = {config.get('expert_plasma_t',1.1):.1f} m"
+                    widgets["mfe_group1_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>{_g1_txt}</div>"
+                    _g2 = config.get('expert_vacuum_t',0.1)+config.get('expert_firstwall_t',0.02)+config.get('expert_blanket_t',0.8)+config.get('expert_reflector_t',0.2)
+                    widgets["mfe_group2_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Inner build: {_g2:.2f} m</div>"
+                    _g3 = config.get('expert_ht_shield_t',0.2)+config.get('expert_structure_t',0.2)+config.get('expert_gap_t',0.5)
+                    widgets["mfe_group3_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Shielding: {_g3:.2f} m</div>"
+                    _g4 = config.get('expert_vessel_t',0.2)+config.get('expert_gap2_t',0.5)+config.get('expert_lt_shield_t',0.3)+config.get('expert_coil_t',1.0)+config.get('expert_bio_shield_t',1.0)
+                    widgets["mfe_group4_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Outer: {_g4:.2f} m</div>"
+                else:  # IFE
+                    outer_r = (config.get("expert_chamber_radius_m", 8) +
+                              config.get("expert_firstwall_t_ife", 0.005) +
+                              config.get("expert_blanket_t_ife", 0.5) +
+                              config.get("expert_reflector_t_ife", 0.1) +
+                              config.get("expert_structure_t_ife", 0.2) +
+                              config.get("expert_vessel_t_ife", 0.2))
+                    widgets["outer_radius_display"].text = (
+                        f"<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px; "
+                        f"font-family:Inter,Helvetica,Arial,sans-serif;'>"
+                        f"<span style='font-size:14px; font-weight:700; color:#00375b;'>Outer Vessel Radius</span>"
+                        f"<span style='font-size:20px; font-weight:800; color:#00375b;'>{outer_r:.2f} m</span></div>")
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        widgets["calculated_q_eng_display"].text = f"<div style='margin-bottom:10px; color:#ff6b6b; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Calculated Q_eng:</b> Error: {str(e)[:50]}...</div>"
+        widgets["auto_epc_display"].text = f"<div style='margin-bottom:10px; color:#ff6b6b; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Total EPC Cost:</b> Error: {str(e)[:50]}...</div>"
     
     outputs = run_cashflow_scenario(config)
     highlight_div.text = render_highlight_facts(outputs)
@@ -722,6 +1044,18 @@ def update_dashboard():
         "Debt Service": [a + b for a, b in zip(outputs["principal_paid_vec"], outputs["interest_paid_vec"])]
     })
     dscr_source.data = dict(ColumnDataSource(dscr_df).data)
+    
+    # Update costing panel if EPC breakdown is available
+    epc_breakdown = outputs.get("epc_breakdown", {})
+    if epc_breakdown:
+        # Store region factor in config for driver analysis
+        if not config.get('_region_factor'):
+            from fusion_cashflow.core.power_to_epc import get_regional_factor
+            config['_region_factor'] = get_regional_factor(config['project_location'])
+        
+        updated_costing_panel = create_costing_panel(epc_breakdown, config)
+        costing_col.children = [updated_costing_panel]
+    
     # Replace plots in layout (main tab only)
     main_col.children = [
         highlight_div,
@@ -774,6 +1108,28 @@ def download_csv_callback(source, filename):
 
 # --- Initial setup ---
 config = get_default_config()
+# Add new UI parameters to config
+config["reactor_type"] = "MFE Tokamak"
+config["power_method"] = "MFE"  # Canonical code: MFE, IFE, PWR
+config["fuel_type"] = "DT (Deuterium-Tritium)"
+config["noak"] = True
+config["fusion_power_mw"] = 500
+config["q_plasma"] = 10
+config["auxiliary_power_mw"] = 50  # Derived from fusion_power / q_plasma
+config["thermal_efficiency"] = 0.46
+config["first_wall_material"] = "Tungsten"
+config["blanket_type"] = "Solid Breeder (Li2TiO3)"
+config["structure_material"] = "Ferritic Steel (FMS)"
+config["magnet_technology"] = "HTS REBCO"
+config["toroidal_field_tesla"] = 12
+config["n_tf_coils"] = 12
+config["tape_width_m"] = 4  # mm
+config["coil_thickness_m"] = 0.25
+config["chamber_radius_m"] = 8
+config["driver_energy_mj"] = 2
+config["q_eng_mode"] = "Calculated (from physics)"
+config["use_expert_geometry"] = False
+# No need for override_epc or total_epc_cost - always use embedded costing now
 widgets = make_widgets(config)
 
 # --- Make years_construction_display reactive ---
@@ -786,81 +1142,155 @@ widgets["construction_start_year"].on_change("value", update_years_construction_
 widgets["project_energy_start_year"].on_change("value", update_years_construction_display)
 
 # --- Make power method and fuel type reactive ---
-def update_fuel_type_based_on_power_method(attr, old, new):
-    power_method = widgets["power_method"].value
-    if power_method == "PWR":
-        # For PWR, force fission fuel
-        widgets["fuel_type"].value = "Fission Benchmark Enriched Uranium"
-        widgets["fuel_type"].options = ["Fission Benchmark Enriched Uranium"]
-    elif power_method in ["MFE", "IFE"]:
-        # For fusion methods, provide fusion fuel options
-        widgets["fuel_type"].options = ["Lithium-Solid", "Lithium-Liquid", "Tritium"]
-        if widgets["fuel_type"].value == "Fission Benchmark Enriched Uranium":
-            widgets["fuel_type"].value = "Lithium-Solid"
-    else:
-        # Default case - all options available
-        widgets["fuel_type"].options = [
-            "Lithium-Solid", 
-            "Lithium-Liquid", 
-            "Tritium", 
-            "Fission Benchmark Enriched Uranium"
-        ]
+def update_fuel_type_based_on_reactor_type(attr, old, new):
+    """Update fuel type options based on reactor type selection."""
+    reactor_type = widgets["reactor_type"].value
+    # No longer restrict fuel types - all fusion reactors can use any fuel
+    # This function kept for potential future fuel type validation
+    pass
 
-def update_config_based_on_power_method(attr, old, new):
-    """Update all configuration parameters when power method changes."""
-    from fusion_cashflow.core.cashflow_engine import get_default_config_by_power_method
-    
-    power_method = widgets["power_method"].value
-    new_config = get_default_config_by_power_method(power_method)
-    
-    # Update all widgets with new configuration values
-    # Skip power_method itself to avoid recursion
-    for key, value in new_config.items():
-        if key in widgets and key != "power_method":
-            widget = widgets[key]
-            if isinstance(widget, (Slider, TextInput, Select)):
-                # For sliders, make sure the value is within range
-                if isinstance(widget, Slider):
-                    if value < widget.start:
-                        widget.start = value
-                    if value > widget.end:
-                        widget.end = value
-                widget.value = value
-            elif isinstance(widget, Checkbox):
-                widget.active = value
-    
-    # Special handling for PWR: force manual EPC override and make slider visible
-    if power_method == "PWR":
-        widgets["override_epc"].active = True
-        widgets["total_epc_cost"].visible = True
-    else:
-        # For fusion methods, respect the config's override_epc setting
-        widgets["total_epc_cost"].visible = widgets["override_epc"].active
-    
-    # Update years construction display
-    years = widgets["project_energy_start_year"].value - widgets["construction_start_year"].value
-    widgets["years_construction_display"].text = (
-        f"<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Construction Duration (years):</b> {years}</div>"
-    )
-    
-    # Update fuel type options based on new power method
-    update_fuel_type_based_on_power_method(attr, old, new)
+def update_config_based_on_reactor_type(attr, old, new):
+    """Update all configuration parameters when reactor type changes."""
+    # Reactor type changes are now handled by toggle_reactor_type_visibility()
+    # This function kept for potential future configuration updates
+    pass
 
-widgets["power_method"].on_change("value", update_fuel_type_based_on_power_method)
-widgets["power_method"].on_change("value", update_config_based_on_power_method)
+# Attach reactor_type callbacks (in addition to visibility callbacks below)
+# Note: These are mostly placeholders now; main logic is in toggle_reactor_type_visibility()
+widgets["reactor_type"].on_change("value", update_fuel_type_based_on_reactor_type)
+widgets["reactor_type"].on_change("value", update_config_based_on_reactor_type)
 
 # --- EPC and Q Engineering Visibility Toggle Functions ---
 def toggle_epc_slider_visibility(attr, old, new):
-    """Show/hide the manual EPC cost slider based on override checkbox."""
-    widgets["total_epc_cost"].visible = new
+    """Show/hide the manual EPC override text input based on checkbox."""
+    widgets["override_epc_value"].visible = new
+
+def toggle_heat_sales_visibility(attr, old, new):
+    """Show/hide the heat sales sliders based on checkbox."""
+    widgets["heat_sales_fraction"].visible = new
+    widgets["heat_price_per_mwh_th"].visible = new
 
 def toggle_q_eng_slider_visibility(attr, old, new):
-    """Show/hide the manual Q Engineering slider based on override checkbox."""
-    widgets["manual_q_eng"].visible = new
+    """Show/hide the manual Q Engineering slider based on q_eng_mode."""
+    if new == "Manual Override":
+        widgets["manual_q_eng"].visible = True
+        widgets["calculated_q_eng_display"].visible = False
+    else:
+        widgets["manual_q_eng"].visible = False
+        widgets["calculated_q_eng_display"].visible = True
+
+def toggle_reactor_type_visibility(attr, old, new):
+    """Show/hide sections based on reactor type (MFE vs IFE)."""
+    is_mfe = (new == "MFE Tokamak")
+    is_ife = (new == "IFE Laser")
+    
+    # Magnet section (MFE only)
+    widgets["magnet_header"].visible = is_mfe
+    widgets["magnet_technology"].visible = is_mfe
+    widgets["toroidal_field_tesla"].visible = is_mfe
+    widgets["n_tf_coils"].visible = is_mfe
+    widgets["tape_width_m"].visible = is_mfe and "HTS" in widgets["magnet_technology"].value
+    widgets["coil_thickness_m"].visible = is_mfe
+    widgets["magnet_cost_preview"].visible = is_mfe
+    
+    # IFE section (IFE only)
+    widgets["ife_header"].visible = is_ife
+    widgets["chamber_radius_m"].visible = is_ife
+    widgets["driver_energy_mj"].visible = is_ife
+    widgets["repetition_rate_hz"].visible = is_ife
+    widgets["target_gain"].visible = is_ife
+    
+    # Expert geometry sections
+    use_expert = widgets["use_expert_geometry"].active
+    widgets["mfe_geometry_header"].visible = is_mfe and use_expert
+    widgets["mfe_group1_header"].visible = is_mfe and use_expert
+    widgets["expert_major_radius_m"].visible = is_mfe and use_expert
+    widgets["expert_plasma_t"].visible = is_mfe and use_expert
+    widgets["expert_elongation"].visible = is_mfe and use_expert
+    widgets["mfe_group1_subtotal"].visible = is_mfe and use_expert
+    widgets["mfe_group2_header"].visible = is_mfe and use_expert
+    widgets["expert_vacuum_t"].visible = is_mfe and use_expert
+    widgets["expert_firstwall_t"].visible = is_mfe and use_expert
+    widgets["expert_blanket_t"].visible = is_mfe and use_expert
+    widgets["expert_reflector_t"].visible = is_mfe and use_expert
+    widgets["mfe_group2_subtotal"].visible = is_mfe and use_expert
+    widgets["mfe_group3_header"].visible = is_mfe and use_expert
+    widgets["expert_ht_shield_t"].visible = is_mfe and use_expert
+    widgets["expert_structure_t"].visible = is_mfe and use_expert
+    widgets["expert_gap_t"].visible = is_mfe and use_expert
+    widgets["mfe_group3_subtotal"].visible = is_mfe and use_expert
+    widgets["mfe_group4_header"].visible = is_mfe and use_expert
+    widgets["expert_vessel_t"].visible = is_mfe and use_expert
+    widgets["expert_gap2_t"].visible = is_mfe and use_expert
+    widgets["expert_lt_shield_t"].visible = is_mfe and use_expert
+    widgets["expert_coil_t"].visible = is_mfe and use_expert
+    widgets["expert_bio_shield_t"].visible = is_mfe and use_expert
+    widgets["mfe_group4_subtotal"].visible = is_mfe and use_expert
+    widgets["total_radius_display"].visible = is_mfe and use_expert
+    
+    widgets["ife_geometry_header"].visible = is_ife and use_expert
+    widgets["ife_group_header"].visible = is_ife and use_expert
+    widgets["expert_chamber_radius_m"].visible = is_ife and use_expert
+    widgets["expert_firstwall_t_ife"].visible = is_ife and use_expert
+    widgets["expert_blanket_t_ife"].visible = is_ife and use_expert
+    widgets["expert_reflector_t_ife"].visible = is_ife and use_expert
+    widgets["expert_structure_t_ife"].visible = is_ife and use_expert
+    widgets["expert_vessel_t_ife"].visible = is_ife and use_expert
+    widgets["outer_radius_display"].visible = is_ife and use_expert
+
+def toggle_magnet_technology_visibility(attr, old, new):
+    """Show/hide HTS tape width based on magnet technology."""
+    widgets["tape_width_m"].visible = "HTS" in new and widgets["reactor_type"].value == "MFE Tokamak"
+
+def toggle_expert_geometry_visibility(attr, old, new):
+    """Enable/disable expert geometry sliders based on checkbox."""
+    is_mfe = widgets["reactor_type"].value == "MFE Tokamak"
+    is_ife = widgets["reactor_type"].value == "IFE Laser"
+    
+    # MFE geometry
+    widgets["mfe_geometry_header"].visible = is_mfe and new
+    widgets["mfe_group1_header"].visible = is_mfe and new
+    widgets["expert_major_radius_m"].visible = is_mfe and new
+    widgets["expert_plasma_t"].visible = is_mfe and new
+    widgets["expert_elongation"].visible = is_mfe and new
+    widgets["mfe_group1_subtotal"].visible = is_mfe and new
+    widgets["mfe_group2_header"].visible = is_mfe and new
+    widgets["expert_vacuum_t"].visible = is_mfe and new
+    widgets["expert_firstwall_t"].visible = is_mfe and new
+    widgets["expert_blanket_t"].visible = is_mfe and new
+    widgets["expert_reflector_t"].visible = is_mfe and new
+    widgets["mfe_group2_subtotal"].visible = is_mfe and new
+    widgets["mfe_group3_header"].visible = is_mfe and new
+    widgets["expert_ht_shield_t"].visible = is_mfe and new
+    widgets["expert_structure_t"].visible = is_mfe and new
+    widgets["expert_gap_t"].visible = is_mfe and new
+    widgets["mfe_group3_subtotal"].visible = is_mfe and new
+    widgets["mfe_group4_header"].visible = is_mfe and new
+    widgets["expert_vessel_t"].visible = is_mfe and new
+    widgets["expert_gap2_t"].visible = is_mfe and new
+    widgets["expert_lt_shield_t"].visible = is_mfe and new
+    widgets["expert_coil_t"].visible = is_mfe and new
+    widgets["expert_bio_shield_t"].visible = is_mfe and new
+    widgets["mfe_group4_subtotal"].visible = is_mfe and new
+    widgets["total_radius_display"].visible = is_mfe and new
+    
+    # IFE geometry
+    widgets["ife_geometry_header"].visible = is_ife and new
+    widgets["ife_group_header"].visible = is_ife and new
+    widgets["expert_chamber_radius_m"].visible = is_ife and new
+    widgets["expert_firstwall_t_ife"].visible = is_ife and new
+    widgets["expert_blanket_t_ife"].visible = is_ife and new
+    widgets["expert_reflector_t_ife"].visible = is_ife and new
+    widgets["expert_structure_t_ife"].visible = is_ife and new
+    widgets["expert_vessel_t_ife"].visible = is_ife and new
+    widgets["outer_radius_display"].visible = is_ife and new
 
 # Set up visibility toggle callbacks
 widgets["override_epc"].on_change("active", toggle_epc_slider_visibility)
-widgets["override_q_eng"].on_change("active", toggle_q_eng_slider_visibility)
+widgets["enable_heat_sales"].on_change("active", toggle_heat_sales_visibility)
+widgets["q_eng_mode"].on_change("value", toggle_q_eng_slider_visibility)
+widgets["reactor_type"].on_change("value", toggle_reactor_type_visibility)
+widgets["magnet_technology"].on_change("value", toggle_magnet_technology_visibility)
 
 outputs = run_cashflow_scenario(config)
 
@@ -926,17 +1356,16 @@ funding_df = pd.DataFrame(
             sum(outputs["debt_drawdown_vec"][: outputs["years_construction"]]),
             outputs["toc"]
             - sum(outputs["debt_drawdown_vec"][: outputs["years_construction"]]),
-            config["total_epc_cost"],
-            config["total_epc_cost"] * config["extra_capex_pct"],
-            config["total_epc_cost"] * config["project_contingency_pct"],
-            config["total_epc_cost"] * config["process_contingency_pct"],
-            config["total_epc_cost"] * config["financing_fee"],
+            outputs.get("total_epc_cost", 5_000_000_000),  # Get from outputs
+            outputs.get("total_epc_cost", 5_000_000_000) * config["extra_capex_pct"],
+            outputs.get("total_epc_cost", 5_000_000_000) * config["project_contingency_pct"],
+            outputs.get("total_epc_cost", 5_000_000_000) * config["process_contingency_pct"],
+            outputs.get("total_epc_cost", 5_000_000_000) * config["financing_fee"],
         ],
     }
 )
 funding_source = ColumnDataSource(funding_df)
 # sens_source = ColumnDataSource(sensitivity_df)
-import pandas as pd
 sens_source = ColumnDataSource(pd.DataFrame())
 
 
@@ -1066,11 +1495,24 @@ dscr_table = DataTable(source=dscr_source, columns=dscr_columns, width=600, heig
 
 
 # --- Download buttons ---
-def make_download_button(source, label, filename):
+def make_download_button(source, label, data_type, project_widget):
     button = Button(label=label, button_type="primary", width=160)
     
-    # Create the download callback with the data source
-    download_callback = CustomJS(args=dict(source=source, filename=filename), code="""
+    # Create the download callback with the data source and project name
+    download_callback = CustomJS(args=dict(source=source, data_type=data_type, project_widget=project_widget), code="""
+        // Get project name and sanitize it
+        var projectName = project_widget.value || 'Project';
+        projectName = projectName.replace(/[^a-zA-Z0-9]/g, '_');
+        
+        // Generate timestamp (DD_MM_YYYY format)
+        var now = new Date();
+        var timestamp = now.getDate().toString().padStart(2, '0') + '_' +
+                       (now.getMonth() + 1).toString().padStart(2, '0') + '_' +
+                       now.getFullYear().toString();
+        
+        // Construct filename
+        var filename = 'FAS_Cashflow_' + projectName + '_' + timestamp + '_' + data_type + '.csv';
+        
         // Convert ColumnDataSource data to CSV
         var data = source.data;
         var columns = Object.keys(data);
@@ -1114,10 +1556,10 @@ def make_download_button(source, label, filename):
     return button
 
 
-annual_download = make_download_button(annual_source, " Download Annual Data", "annual.csv")
-cum_download = make_download_button(cum_source, " Download Cumulative Data", "cumulative.csv")
-dscr_download = make_download_button(dscr_source, " Download DSCR Data", "dscr.csv")
-sens_download = make_download_button(sens_source, " Download Sensitivity Data", "sensitivity.csv")
+annual_download = make_download_button(annual_source, " Download Annual Data", "annual", widgets["project_name"])
+cum_download = make_download_button(cum_source, " Download Cumulative Data", "cumulative", widgets["project_name"])
+dscr_download = make_download_button(dscr_source, " Download DSCR Data", "dscr", widgets["project_name"])
+sens_download = make_download_button(sens_source, " Download Sensitivity Data", "sensitivity", widgets["project_name"])
 
 
 # --- Layout ---
@@ -1150,34 +1592,65 @@ sidebar = column(
     widgets["plant_lifetime"],
     
     # Power and technology
-    widgets["power_method"],
+    widgets["reactor_type"],
     widgets["net_electric_power_mw"],
     widgets["capacity_factor"],
     widgets["fuel_type"],
+    widgets["noak"],
+    
+    # Power Balance Parameters
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Power Balance</h3>"),
+    widgets["fusion_power_mw"],
+    widgets["q_plasma"],
+    widgets["derived_heating_power"],
+    widgets["thermal_efficiency"],
+    widgets["power_balance_info"],
+    
+    # Material Selection
+    widgets["materials_header"],
+    widgets["first_wall_material"],
+    widgets["blanket_type"],
+    widgets["structure_material"],
+    widgets["material_cost_preview"],
+    
+    # Magnet System (MFE Only)
+    widgets["magnet_header"],
+    widgets["magnet_technology"],
+    widgets["toroidal_field_tesla"],
+    widgets["n_tf_coils"],
+    widgets["tape_width_m"],
+    widgets["coil_thickness_m"],
+    widgets["magnet_cost_preview"],
+    
+    # IFE Driver System
+    widgets["ife_header"],
+    widgets["chamber_radius_m"],
+    widgets["driver_energy_mj"],
+    widgets["repetition_rate_hz"],
+    widgets["target_gain"],
     
     # EPC Cost Integration
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Engineering, Procurement & Construction - The total cost to design, procure equipment, and build the power plant' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">EPC Cost Integration<sup>?</sup></span></h3>"),
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><style>.sb-tip-wrap{position:relative;display:inline-block}.sb-tip-wrap .sb-tip{visibility:hidden;opacity:0;transition:opacity .2s;position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#001e3c;color:#fff;font-size:11px;font-weight:400;padding:6px 10px;border-radius:6px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3);z-index:10;pointer-events:none}.sb-tip-wrap:hover .sb-tip{visibility:visible;opacity:1}.sb-tip-wrap .sb-lbl{cursor:help;background:rgba(160,196,255,.15);padding:2px 6px;border-radius:4px;transition:background .2s}.sb-tip-wrap:hover .sb-lbl{background:rgba(160,196,255,.3)}</style><span class='sb-tip-wrap'><span class='sb-lbl'>EPC Cost Integration<sup>?</sup></span><span class='sb-tip'>Total cost to design, procure equipment, and build the plant</span></span></h3>"),
     widgets["auto_epc_display"],
     widgets["override_epc"],
-    widgets["total_epc_cost"],
+    widgets["override_epc_value"],
     
     # Q Engineering Integration
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Q Engineering - The energy amplification factor (fusion power out / heating power in). Higher Q means more efficient fusion reactions' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">Q Engineering Integration<sup>?</sup></span></h3>"),
-    widgets["auto_q_eng_display"],
-    widgets["override_q_eng"],
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Q Engineering Integration<sup>?</sup></span><span class='sb-tip'>Energy amplification factor (fusion power out / heating power in)</span></span></h3>"),
+    widgets["q_eng_mode"],
+    widgets["calculated_q_eng_display"],
     widgets["manual_q_eng"],
     
     # Financial parameters
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Financial Parameters - Debt structure, interest rates, and loan terms that determine how the project is financed' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">Financial Parameters<sup>?</sup></span></h3>"),
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Financial Parameters<sup>?</sup></span><span class='sb-tip'>Debt structure, interest rates, and loan terms</span></span></h3>"),
     widgets["input_debt_pct"],
-    widgets["cost_of_debt"],
     widgets["loan_rate"],
     widgets["financing_fee"],
     widgets["repayment_term_years"],
     widgets["grace_period_years"],
     
     # Cost parameters
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Cost Parameters - Additional capital expenses, contingencies, operations & maintenance costs, and electricity pricing' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">Cost Parameters<sup>?</sup></span></h3>"),
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Cost Parameters<sup>?</sup></span><span class='sb-tip'>CapEx, contingencies, O&amp;M costs, and electricity pricing</span></span></h3>"),
     widgets["extra_capex_pct"],
     widgets["project_contingency_pct"],
     widgets["process_contingency_pct"],
@@ -1185,8 +1658,14 @@ sidebar = column(
     widgets["variable_om"],
     widgets["electricity_price"],
     
+    # Industrial heat sales
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Industrial Heat Sales<sup>?</sup></span><span class='sb-tip'>Optional revenue from selling thermal energy to industrial customers</span></span></h3>"),
+    widgets["enable_heat_sales"],
+    widgets["heat_sales_fraction"],
+    widgets["heat_price_per_mwh_th"],
+    
     # Operations
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Operations - Plant lifetime, depreciation, end-of-life costs, tax modeling, and operational ramp-up parameters' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">Operations<sup>?</sup></span></h3>"),
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Operations<sup>?</sup></span><span class='sb-tip'>Lifetime, depreciation, decommissioning, tax &amp; ramp-up</span></span></h3>"),
     widgets["dep_years"],
     widgets["salvage_value"],
     widgets["decommissioning_cost"],
@@ -1200,9 +1679,9 @@ sidebar = column(
     widgets["ramp_up_rate_per_year"],
     
     # Optimization
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Optimisation- Experimental</h3>"),
-    widgets["optimise_target"],
-    row(widgets["optimise_button"], Spacer(width=10), widgets["optimise_status"]),
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Optimisation — Experimental</h3>"),
+    row(widgets["optimise_target"], Spacer(width=10), widgets["optimise_button"]),
+    widgets["optimise_status"],
     
     Spacer(height=16),
     annual_download,
@@ -1213,61 +1692,35 @@ sidebar = column(
 
 # --- Chart Explanation Divs ---
 annual_cf_explanation = Div(
-    text="""<div style='color: #a0c4ff; font-size: 14px; margin: 10px 0 5px 0; font-weight: 600; font-family: Inter, Helvetica, Arial, sans-serif;'>
-    <span title='Annual Cash Flow shows yearly money in and out. Unlevered = project-level before debt service. Levered = equity-level after debt payments' 
-          style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-          onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-          onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-        ANNUAL CASH FLOWS<sup>?</sup>
+    text="""<style>.cf-tip-wrap{position:relative;display:inline-block}.cf-tip-wrap .cf-tip{visibility:hidden;opacity:0;transition:opacity .2s;position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#001e3c;color:#fff;font-size:11px;font-weight:400;padding:6px 10px;border-radius:6px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3);z-index:10;pointer-events:none}.cf-tip-wrap:hover .cf-tip{visibility:visible;opacity:1}.cf-tip-wrap .cf-lbl{cursor:help;background:rgba(160,196,255,.15);padding:2px 6px;border-radius:4px;transition:background .2s}.cf-tip-wrap:hover .cf-lbl{background:rgba(160,196,255,.3)}</style>
+    <div style='color: #a0c4ff; font-size: 14px; margin: 10px 0 5px 0; font-weight: 600; font-family: Inter, Helvetica, Arial, sans-serif;'>
+    <span class='cf-tip-wrap'>
+        <span class='cf-lbl'>ANNUAL CASH FLOWS<sup>?</sup></span>
+        <span class='cf-tip'>Unlevered = project-level before debt. Levered = equity-level after debt payments</span>
     </span>
     </div>""",
     width=900
 )
 
 cumulative_cf_explanation = Div(
-    text="""<div style='color: #a0c4ff; font-size: 14px; margin: 20px 0 5px 0; font-weight: 600; font-family: Inter, Helvetica, Arial, sans-serif;'>
-    <span title='Cumulative Cash Flow tracks total money flow over time. When it crosses zero, the project has paid back its investment (payback point)' 
-          style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-          onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-          onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-        CUMULATIVE CASH FLOWS<sup>?</sup>
+    text="""<style>.cf-tip-wrap{position:relative;display:inline-block}.cf-tip-wrap .cf-tip{visibility:hidden;opacity:0;transition:opacity .2s;position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#001e3c;color:#fff;font-size:11px;font-weight:400;padding:6px 10px;border-radius:6px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3);z-index:10;pointer-events:none}.cf-tip-wrap:hover .cf-tip{visibility:visible;opacity:1}.cf-tip-wrap .cf-lbl{cursor:help;background:rgba(160,196,255,.15);padding:2px 6px;border-radius:4px;transition:background .2s}.cf-tip-wrap:hover .cf-lbl{background:rgba(160,196,255,.3)}</style>
+    <div style='color: #a0c4ff; font-size: 14px; margin: 20px 0 5px 0; font-weight: 600; font-family: Inter, Helvetica, Arial, sans-serif;'>
+    <span class='cf-tip-wrap'>
+        <span class='cf-lbl'>CUMULATIVE CASH FLOWS<sup>?</sup></span>
+        <span class='cf-tip'>Total money flow over time &mdash; zero-crossing = payback point</span>
     </span>
     </div>""",
     width=900
 )
 
 # --- Main Results Tab ---
-main_col = column(
-    highlight_div,
-    annual_cf_explanation,
-    annual_fig,
-    annual_toggle_button,
-    annual_table_explanation,
-    annual_table,
-    equity_metrics_div,
-    cumulative_cf_explanation,
-    cum_fig,
-    cum_toggle_button,
-    cum_table_explanation,
-    cum_table,
-    dscr_metrics_div,
-    dscr_fig,
-    dscr_toggle_button,
-    dscr_table_explanation,
-    dscr_table,
-    sizing_mode="stretch_both",
-)
-
+# Create empty main_col - will be populated by update_dashboard()
+main_col = column()
 
 # --- Main Results Tab ---
-
-# Use TabPanel for Bokeh 3.x compatibility
-from bokeh.models import TabPanel
-
 main_tab = TabPanel(child=main_col, title="Main Results")
 
 # --- Sensitivity Analysis Tab ---
-from bokeh.models import Div
 grey_container_style = {
     "background": "#00375b",
     "border-radius": "16px",
@@ -1287,7 +1740,7 @@ sens_fig = placeholder_fig
 sens_plot_container = column(sens_fig, sizing_mode="stretch_width", styles=grey_container_style)
 sens_col = column(
     Div(
-        text="<h3 style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Sensitivity Analysis</h3><p style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif;'>Click the button to recompute sensitivity analysis with current inputs.</p>"
+        text="<h3 style='color:#00375b; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Sensitivity Analysis</h3><p style='color:#333333; font-family:Inter, Helvetica, Arial, sans-serif;'>Click the button to recompute sensitivity analysis with current inputs.</p>"
     ),
     row(
         Button(
@@ -1300,199 +1753,179 @@ sens_col = column(
         Spacer(width=20),  # Add some spacing between buttons
     ),
     sens_plot_container,
-    sizing_mode="stretch_both",
+    styles={'max-width': '92%'},
 )
 sens_tab = TabPanel(child=sens_col, title="Sensitivity Analysis")
 
+# --- Costing Breakdown Tab ---
+# Create initial costing panel with current outputs
+epc_breakdown = outputs.get("epc_breakdown", {})
+if epc_breakdown:
+    # Store region factor in config for driver analysis
+    if not config.get('_region_factor'):
+        from fusion_cashflow.core.power_to_epc import get_regional_factor
+        config['_region_factor'] = get_regional_factor(config['project_location'])
+    
+    # Create costing panel with full EPC results and config
+    costing_panel = create_costing_panel(epc_breakdown, config)
+else:
+    # Show placeholder if no EPC breakdown available
+    costing_panel = column(
+        Div(
+            text="""
+            <h3 style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>
+                EPC Cost Breakdown
+            </h3>
+            <p style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif;'>
+                Enable "Auto-Generate EPC" to view detailed cost breakdown.
+            </p>
+            """,
+            styles=grey_container_style
+        )
+    )
 
-# --- Optimization Function ---
+costing_col = column(costing_panel, styles={'background': '#f5f5f5', 'border-radius': '16px', 'padding': '12px'})
+costing_tab = TabPanel(child=costing_col, title="Cost Breakdown")
+
+
+# --- Optimization Function (multi-variable, no nevergrad) ---
 # Global variables to track optimization state
 _optimization_running = False
 _optimization_result = None  # Store optimization results
 
+def _opt_status_html(text, color="#ffffff", bg="rgba(255,255,255,0.08)"):
+    """Wrap optimiser status text in a styled card."""
+    return (
+        f"<div style='padding:8px 12px;border-radius:8px;background:{bg};"
+        f"color:{color};font-size:13px;font-weight:600;"
+        f"font-family:Inter,Helvetica,Arial,sans-serif;line-height:1.5;'>"
+        f"{text}</div>"
+    )
+
+# Optimisation search space — matches slider bounds
+_OPT_VARS = {
+    "input_debt_pct":   {"low": 0.10, "high": 0.90, "step": 0.01},
+    "capacity_factor":  {"low": 0.50, "high": 0.95, "step": 0.01},
+    "electricity_price":{"low": 30,   "high": 400,  "step": 1},
+    "plant_lifetime":   {"low": 25,   "high": 60,   "step": 1},
+}
+
+def _latin_hypercube(n, rng):
+    """Return n quasi-random samples in [0,1)^d via Latin Hypercube Sampling."""
+    import numpy as np
+    d = len(_OPT_VARS)
+    result = np.zeros((n, d))
+    for j in range(d):
+        perm = rng.permutation(n)
+        for i in range(n):
+            result[i, j] = (perm[i] + rng.random()) / n
+    return result
+
+def _sample_to_config(unit_vec):
+    """Map a [0,1]^d vector to actual config values (respecting step)."""
+    import numpy as np
+    out = {}
+    for idx, (key, spec) in enumerate(_OPT_VARS.items()):
+        raw = spec["low"] + unit_vec[idx] * (spec["high"] - spec["low"])
+        # Snap to step
+        raw = round(raw / spec["step"]) * spec["step"]
+        raw = max(spec["low"], min(spec["high"], raw))
+        out[key] = raw
+    return out
+
 def run_optimiser():
-    """Run optimisation with the selected objective."""
+    """Multi-variable optimiser: LHS exploration + local refinement (~48 evals)."""
     global _optimization_running, _optimization_result
-    
-    print("Optimise button clicked!")  # Debug print
-    
-    # Prevent multiple simultaneous optimizations
+    import numpy as np
+
     if _optimization_running:
-        print("Optimisation already running, ignoring click")
-        widgets["optimise_status"].text = "Optimisation already running..."
-        widgets["optimise_status"].styles = {"color": "#ffcc00", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
+        widgets["optimise_status"].text = _opt_status_html("Optimisation already running...", "#ffcc00", "rgba(255,204,0,0.10)")
         return
-    
-    if not OPTIMIZATION_AVAILABLE:
-        widgets["optimise_status"].text = "Optimisation not available"
-        print("Optimisation not available")
-        return
-    
-    # Set running flag and disable button
+
     _optimization_running = True
-    _optimization_result = None  # Clear previous result
+    _optimization_result = None
     widgets["optimise_button"].disabled = True
-    widgets["optimise_status"].text = "Optimising... (3 attempts × 50 iterations)"
-    widgets["optimise_status"].styles = {"color": "#ffcc00", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
-    print("Starting optimisation...")
-    
+    widgets["optimise_status"].text = _opt_status_html("Optimising… ~48 evaluations", "#ffcc00", "rgba(255,204,0,0.10)")
+
     cfg0 = get_config_from_widgets(widgets)
-    
+
     def worker():
         global _optimization_running, _optimization_result
         try:
-            print("Worker thread started")
-            # Map UI labels to internal objective names
-            metric_map = {
-                "Max IRR": "IRR",
-                "Max NPV": "NPV", 
-                "Min LCOE": "LCOE"
-            }
+            metric_map = {"Max IRR": "IRR", "Max NPV": "NPV", "Min LCOE": "LCOE"}
             objective = metric_map[widgets["optimise_target"].value]
-            print(f"Objective: {objective}")
-            
-            # Get the region from project location
-            from fusion_cashflow.core.cashflow_engine import map_location_to_region
-            region = map_location_to_region(cfg0["project_location"])
-            print(f"Region: {region}")
-            
-            # Create Nevergrad instrumentation for debt ratio only
-            instr = ng.p.Instrumentation(
-                input_debt_pct=ng.p.Scalar(lower=0.30, upper=0.90)
-            )
-            
-            # Run multiple optimization attempts to find the absolute best
-            num_attempts = 3  # Run 3 independent optimizations
-            budget_per_attempt = 50  # More iterations per attempt
-            
-            all_results = []
-            
-            print(f"Running {num_attempts} optimisation attempts with {budget_per_attempt} iterations each...")
-            
-            for attempt in range(num_attempts):
-                print(f"Starting optimisation attempt {attempt + 1}/{num_attempts}")
-                
-                # Use OnePlusOne optimizer with more iterations
-                opt = ng.optimizers.OnePlusOne(parametrization=instr, budget=budget_per_attempt)
-                attempt_best = None
-                attempt_best_val = float("inf") if objective == "LCOE" else float("-inf")
-                
-                for i in range(opt.budget):
+            minimise = (objective == "LCOE")
+
+            rng = np.random.default_rng(42)
+
+            def evaluate(overrides):
+                """Run one cashflow scenario and return the objective value."""
+                cfg = cfg0.copy()
+                cfg.update(overrides)
+                out = run_cashflow_scenario(cfg)
+                val = {
+                    "IRR":  out.get("irr", -0.5),
+                    "NPV":  out.get("npv", -1e10),
+                    "LCOE": out.get("lcoe_val", 1000.0),
+                }[objective]
+                return val, overrides, out
+
+            # --- Phase 1: Latin Hypercube exploration (24 samples) ---
+            lhs = _latin_hypercube(24, rng)
+            results = []
+            for row in lhs:
+                try:
+                    overrides = _sample_to_config(row)
+                    val, ov, out = evaluate(overrides)
+                    results.append((val, ov, out))
+                except Exception:
+                    continue
+
+            if not results:
+                _optimization_result = {"success": False, "error": "All evaluations failed"}
+                return
+
+            # Sort: ascending for LCOE, descending for IRR/NPV
+            results.sort(key=lambda x: x[0], reverse=not minimise)
+
+            # --- Phase 2: Local refinement around top-3 (8 perturbations each) ---
+            top3 = results[:3]
+            var_keys = list(_OPT_VARS.keys())
+            for best_val, best_ov, best_out in top3:
+                for _ in range(8):
                     try:
-                        x = opt.ask()
-                        
-                        # Extract debt percentage parameter - handle both dict and tuple formats
-                        if hasattr(x.value, 'items') and isinstance(x.value, dict):
-                            # Dictionary format
-                            debt_pct = x.value["input_debt_pct"]
-                        elif isinstance(x.value, tuple) and len(x.value) == 2:
-                            # Tuple format (args, kwargs)
-                            args, kwargs = x.value
-                            debt_pct = kwargs.get("input_debt_pct", args[0] if args else 0.5)
-                        elif isinstance(x.value, (list, tuple)) and len(x.value) > 0:
-                            # Simple array/tuple format
-                            debt_pct = x.value[0]
-                        elif hasattr(x.value, '__getitem__'):
-                            # Other indexable format 
-                            debt_pct = x.value[0]
-                        else:
-                            # Single scalar value
-                            debt_pct = float(x.value)
-                        
-                        # Create modified config with new debt ratio
-                        cfg = cfg0.copy()
-                        cfg["input_debt_pct"] = debt_pct
-                        
-                        # Run cashflow scenario
-                        from fusion_cashflow.core import cashflow_engine
-                        out = cashflow_engine.run_cashflow_scenario(cfg)
-                        
-                        # Extract objective value
-                        val = {
-                            "IRR": out.get("irr", -0.5),
-                            "NPV": out.get("npv", -1e10), 
-                            "LCOE": out.get("lcoe_val", 1000.0)
-                        }[objective]
-                        
-                        # Calculate fitness (nevergrad minimizes, so negate for maximization)
-                        fitness = -val if objective in ["IRR", "NPV"] else val
-                        opt.tell(x, fitness)
-                        
-                        # Track best result for this attempt
-                        if ((objective == "LCOE" and val < attempt_best_val) or
-                            (objective != "LCOE" and val > attempt_best_val)):
-                            attempt_best_val = val
-                            attempt_best = (debt_pct, out)
-                            
-                    except Exception as e:
-                        # Handle errors in individual iterations
-                        print(f"Error in optimisation attempt {attempt + 1}, iteration {i}: {e}")
+                        perturbed = {}
+                        for key in var_keys:
+                            spec = _OPT_VARS[key]
+                            # ±10% of range, Gaussian
+                            delta = rng.normal(0, 0.10) * (spec["high"] - spec["low"])
+                            raw = best_ov[key] + delta
+                            raw = round(raw / spec["step"]) * spec["step"]
+                            raw = max(spec["low"], min(spec["high"], raw))
+                            perturbed[key] = raw
+                        val, ov, out = evaluate(perturbed)
+                        results.append((val, ov, out))
+                    except Exception:
                         continue
-                
-                # Store this attempt's result
-                if attempt_best is not None:
-                    all_results.append((attempt_best_val, attempt_best))
-                    print(f"Attempt {attempt + 1} completed: {objective}={attempt_best_val:.4f} @ debt={attempt_best[0]:.1%}")
-                else:
-                    print(f"Attempt {attempt + 1} failed to find valid results")
-            
-            # Find the absolute best result across all attempts
-            if all_results:
-                # Sort results: ascending for LCOE (minimize), descending for IRR/NPV (maximize)
-                if objective == "LCOE":
-                    all_results.sort(key=lambda x: x[0])  # Sort ascending (lower is better)
-                    best_val, best = all_results[0]  # Take the lowest LCOE
-                    print(f"BEST RESULT: Lowest {objective} = ${best_val:,.2f} @ debt {best[0]:.1%}")
-                else:
-                    all_results.sort(key=lambda x: x[0], reverse=True)  # Sort descending (higher is better)
-                    best_val, best = all_results[0]  # Take the highest IRR/NPV
-                    if objective == "IRR":
-                        print(f"BEST RESULT: Highest {objective} = {best_val*100:.2f}% @ debt {best[0]:.1%}")
-                    else:
-                        print(f"BEST RESULT: Highest {objective} = ${best_val:,.0f} @ debt {best[0]:.1%}")
-                
-                # Show comparison of all attempts
-                print("All attempts comparison:")
-                for i, (val, result) in enumerate(all_results):
-                    debt_pct = result[0]
-                    if objective == "LCOE":
-                        print(f"  Attempt {i+1}: LCOE=${val:,.2f} @ debt={debt_pct:.1%}")
-                    elif objective == "IRR":
-                        print(f"  Attempt {i+1}: IRR={val*100:.2f}% @ debt={debt_pct:.1%}")
-                    else:
-                        print(f"  Attempt {i+1}: NPV=${val:,.0f} @ debt={debt_pct:.1%}")
-                        
-            else:
-                best = None
-                best_val = None
-                print("All optimisation attempts failed")
-            
-            print(f"Optimisation complete. Best result: {best is not None}")
-            
-            # Store result for periodic callback to pick up
+
+            # Final sort and pick best
+            results.sort(key=lambda x: x[0], reverse=not minimise)
+            best_val, best_ov, best_out = results[0]
+
             _optimization_result = {
-                'best': best,
-                'best_val': best_val,
-                'objective': objective,
-                'success': best is not None
+                "success": True,
+                "best_overrides": best_ov,
+                "best_val": best_val,
+                "best_outputs": best_out,
+                "objective": objective,
+                "n_evals": len(results),
             }
-            if best:
-                print(f"Optimisation result stored: debt={best[0]:.3f}")
-            else:
-                print("Optimisation result stored: debt=None")
-            
+
         except Exception as e:
-            print(f"Worker thread error: {e}")
             import traceback
             traceback.print_exc()
-            _optimization_result = {
-                'best': None,
-                'error': str(e),
-                'success': False
-            }
-    
-    # Run optimization in background thread
-    print("Starting worker thread...")
+            _optimization_result = {"success": False, "error": str(e)}
+
     threading.Thread(target=worker, daemon=True).start()
 
 
@@ -1500,36 +1933,31 @@ def run_optimiser():
 def check_optimization_results():
     """Check if optimisation has completed and apply results."""
     global _optimization_running, _optimization_result
-    
+
     if _optimization_result is not None:
-        print("Processing optimisation result...")
         result = _optimization_result
-        _optimization_result = None  # Clear the result
-        
+        _optimization_result = None
+
         try:
-            if result['success'] and result['best'] is not None:
-                debt, outputs_updated = result['best']
-                objective = result['objective']
-                best_val = result['best_val']
-                
-                print(f"Applying successful optimisation: debt={debt:.3f}")
-                
-                # Update the debt percentage widget
-                old_value = widgets["input_debt_pct"].value
-                widgets["input_debt_pct"].value = debt
-                print(f"Debt widget changed from {old_value} to {widgets['input_debt_pct'].value}")
-                
-                # Update dashboard with optimized configuration
+            if result["success"]:
+                best_ov = result["best_overrides"]
+                best_val = result["best_val"]
+                objective = result["objective"]
+                n_evals = result.get("n_evals", "?")
+
+                # Apply optimised values to sliders
+                for key, val in best_ov.items():
+                    if key in widgets:
+                        widgets[key].value = val
+
+                # Re-run scenario with updated widgets and refresh dashboard
                 config_updated = get_config_from_widgets(widgets)
                 outputs_updated = run_cashflow_scenario(config_updated)
-                
-                # Update the highlight div with new metrics
+
                 highlight_div.text = render_highlight_facts(outputs_updated)
                 dscr_metrics_div.text = render_dscr_metrics(outputs_updated)
                 equity_metrics_div.text = render_equity_metrics(outputs_updated)
-                print("Highlight div and contextual financial metrics updated")
-                
-                # Update all plot data sources
+
                 annual_df = pd.DataFrame({
                     "Year": outputs_updated["year_labels_int"],
                     "Unlevered CF": outputs_updated["unlevered_cf_vec"],
@@ -1541,14 +1969,14 @@ def check_optimization_results():
                     "NOI": outputs_updated["noi_vec"],
                 })
                 annual_source.data = dict(ColumnDataSource(annual_df).data)
-                
+
                 cum_df = pd.DataFrame({
                     "Year": outputs_updated["year_labels_int"],
                     "Cumulative Unlevered CF": outputs_updated["cumulative_unlevered_cf_vec"],
                     "Cumulative Levered CF": outputs_updated["cumulative_levered_cf_vec"],
                 })
                 cum_source.data = dict(ColumnDataSource(cum_df).data)
-                
+
                 dscr_df = pd.DataFrame({
                     "Year": outputs_updated["year_labels_int"],
                     "DSCR": outputs_updated["dscr_vec"],
@@ -1556,44 +1984,47 @@ def check_optimization_results():
                     "Debt Service": [a + b for a, b in zip(outputs_updated["principal_paid_vec"], outputs_updated["interest_paid_vec"])]
                 })
                 dscr_source.data = dict(ColumnDataSource(dscr_df).data)
-                print("All data sources updated")
-                
-                # Format improvement message
+
+                # Format status message
                 delta = "↓" if objective == "LCOE" else "↑"
                 if objective == "LCOE":
-                    best_val_formatted = f"${best_val:,.2f}"
+                    fmt_val = f"${best_val:,.2f}"
                 elif objective == "IRR":
-                    best_val_formatted = f"{best_val*100:.2f}%"
-                else:  # NPV
-                    best_val_formatted = f"${best_val:,.0f}"
-                    
+                    fmt_val = f"{best_val*100:.2f}%"
+                else:
+                    fmt_val = f"${best_val:,.0f}"
+
+                parts = []
+                _short = {"input_debt_pct": "Debt", "capacity_factor": "CF",
+                           "electricity_price": "Price", "plant_lifetime": "Life"}
+                for k, v in best_ov.items():
+                    lbl = _short.get(k, k)
+                    if k in ("input_debt_pct", "capacity_factor"):
+                        parts.append(f"{lbl} {v:.0%}")
+                    elif k == "electricity_price":
+                        parts.append(f"{lbl} ${v:.0f}/MWh")
+                    elif k == "plant_lifetime":
+                        parts.append(f"{lbl} {int(v)}yr")
+                summary = " &middot; ".join(parts)
+
                 status_text = (
-                    f"Optimised: {objective} {delta} to "
-                    f"{best_val_formatted} @ debt {debt:.0%}"
+                    f"<b>{objective} {delta} {fmt_val}</b><br>"
+                    f"<span style='font-size:12px;font-weight:400;opacity:0.85;'>{summary} &nbsp;·&nbsp; {n_evals} evals</span>"
                 )
-                widgets["optimise_status"].text = status_text
-                widgets["optimise_status"].styles = {"color": "#00cc66", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
-                print(f"Status updated: {status_text}")
-                
+                widgets["optimise_status"].text = _opt_status_html(status_text, "#00cc66", "rgba(0,204,102,0.10)")
+
             else:
-                # Handle optimization failure
-                error_msg = result.get('error', 'Unknown error')
-                print(f"Optimisation failed: {error_msg}")
-                widgets["optimise_status"].text = f"Optimisation failed: {error_msg[:30]}..."
-                widgets["optimise_status"].styles = {"color": "#ff6b6b", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
-                
+                error_msg = result.get("error", "Unknown error")
+                widgets["optimise_status"].text = _opt_status_html(f"Optimisation failed: {error_msg[:40]}", "#ff6b6b", "rgba(255,100,100,0.10)")
+
         except Exception as apply_error:
-            print(f"Error applying optimisation results: {apply_error}")
             import traceback
             traceback.print_exc()
-            widgets["optimise_status"].text = f"Apply error: {str(apply_error)[:30]}..."
-            widgets["optimise_status"].styles = {"color": "#ff6b6b", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
-        
+            widgets["optimise_status"].text = _opt_status_html(f"Apply error: {str(apply_error)[:40]}", "#ff6b6b", "rgba(255,100,100,0.10)")
+
         finally:
-            # Always re-enable button and reset running flag
             widgets["optimise_button"].disabled = False
             _optimization_running = False
-            print("Optimisation completed and button re-enabled")
 
 
 # --- Proper widget callback binding to avoid closure issues and use debouncing ---
@@ -1610,6 +2041,8 @@ for w in widgets.values():
             w.on_change(
                 "value" if not isinstance(w, Checkbox) else "active", make_callback(w)
             )
+        elif isinstance(w, RadioButtonGroup):
+            w.on_change("active", make_callback(w))
 
 
 # --- Sensitivity Analysis Button Callback ---
@@ -1644,6 +2077,197 @@ if sens_button:
 # --- Optimization Button Callback ---
 widgets["optimise_button"].on_click(run_optimiser)
 
+# --- Expert Config Tab Creation ---
+# Create expert geometry widgets
+widgets["expert_header"] = Div(
+    text="""
+    <div style='font-family:Inter,Helvetica,Arial,sans-serif;'>
+        <h3 style='margin:0 0 8px 0; color:#ffffff; font-size:18px; font-weight:700;'>Expert Configuration</h3>
+        <p style='margin:0; color:rgba(255,255,255,0.8); font-size:13px; line-height:1.5;'>
+            Override template-based geometry with custom radial build.
+            <b style="color:#ffffff;">All parameters must be specified together</b> — partial overrides not supported.
+        </p>
+    </div>""",
+    styles={"background": "#00375b", "padding": "18px 24px", "border-radius": "16px", "color": "#ffffff",
+            "font-family": "Inter, Helvetica, Arial, sans-serif", "margin-bottom": "16px"},
+)
+
+widgets["use_expert_geometry"] = Checkbox(
+    label="Enable Expert Geometry Override (unchecked = use template defaults)",
+    active=config.get("use_expert_geometry", False)
+)
+
+widgets["geometry_mode_info"] = Div(
+    text="<div style='color:#6b7280; font-size:12px; margin:8px 0 16px 0;'>When disabled, geometry auto-scales from reactor type and power level using proven templates.</div>",
+)
+
+# --- MFE Card Styles ---
+_card_style = ("background:#fafafa; border:1px solid rgba(0,0,0,0.08); border-radius:12px; "
+               "padding:14px 20px; margin-bottom:12px; font-family:Inter,Helvetica,Arial,sans-serif;")
+_card_hdr = lambda title, subtitle: (
+    f"<div style='{_card_style}'>"
+    f"<div style='font-size:14px; font-weight:700; color:#00375b; margin-bottom:2px;'>{title}</div>"
+    f"<div style='font-size:11px; color:#6b7280;'>{subtitle}</div></div>"
+)
+
+# MFE Section Header
+_mfe_vis = config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False)
+widgets["mfe_geometry_header"] = Div(
+    text="<div style='font-size:16px; font-weight:700; color:#00375b; margin:8px 0 4px 0; font-family:Inter,Helvetica,Arial,sans-serif;'>MFE Tokamak Radial Build</div>",
+    visible=_mfe_vis,
+)
+
+# --- Group 1: Core Plasma ---
+widgets["mfe_group1_header"] = Div(
+    text=_card_hdr("Core Plasma", "Plasma shape and major geometry"),
+    visible=_mfe_vis,
+)
+widgets["expert_major_radius_m"] = Slider(title="Major Radius R\u2080 (m)", start=2, end=10, value=config.get("expert_major_radius_m", 3), step=0.1, visible=_mfe_vis)
+widgets["expert_plasma_t"] = Slider(title="Plasma Thickness / Minor Radius (m)", start=0.5, end=3, value=config.get("expert_plasma_t", 1.1), step=0.1, visible=_mfe_vis)
+widgets["expert_elongation"] = Slider(title="Plasma Elongation \u03ba", start=1.0, end=4.0, value=config.get("expert_elongation", 3.0), step=0.1, visible=_mfe_vis)
+widgets["mfe_group1_subtotal"] = Div(
+    text=f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Core: R\u2080 = {config.get('expert_major_radius_m',3):.1f} m, a = {config.get('expert_plasma_t',1.1):.1f} m</div>",
+    visible=_mfe_vis,
+)
+
+# --- Group 2: Inner Components ---
+widgets["mfe_group2_header"] = Div(
+    text=_card_hdr("Inner Components", "First wall through reflector"),
+    visible=_mfe_vis,
+)
+widgets["expert_vacuum_t"] = Slider(title="Vacuum Gap (m)", start=0.05, end=0.5, value=config.get("expert_vacuum_t", 0.1), step=0.01, visible=_mfe_vis)
+widgets["expert_firstwall_t"] = Slider(title="First Wall (m)", start=0.005, end=0.05, value=config.get("expert_firstwall_t", 0.02), step=0.005, visible=_mfe_vis)
+widgets["expert_blanket_t"] = Slider(title="Blanket (m)", start=0.3, end=1.5, value=config.get("expert_blanket_t", 0.8), step=0.05, visible=_mfe_vis)
+widgets["expert_reflector_t"] = Slider(title="Reflector (m)", start=0.1, end=0.5, value=config.get("expert_reflector_t", 0.2), step=0.05, visible=_mfe_vis)
+_g2_sum = sum(config.get(k, d) for k, d in [("expert_vacuum_t",0.1),("expert_firstwall_t",0.02),("expert_blanket_t",0.8),("expert_reflector_t",0.2)])
+widgets["mfe_group2_subtotal"] = Div(
+    text=f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Inner build: {_g2_sum:.2f} m</div>",
+    visible=_mfe_vis,
+)
+
+# --- Group 3: Shielding & Structure ---
+widgets["mfe_group3_header"] = Div(
+    text=_card_hdr("Shielding & Structure", "Shields, structural support, maintenance gap"),
+    visible=_mfe_vis,
+)
+widgets["expert_ht_shield_t"] = Slider(title="High-Temp Shield (m)", start=0.1, end=0.5, value=config.get("expert_ht_shield_t", 0.2), step=0.05, visible=_mfe_vis)
+widgets["expert_structure_t"] = Slider(title="Structure (m)", start=0.1, end=0.5, value=config.get("expert_structure_t", 0.2), step=0.05, visible=_mfe_vis)
+widgets["expert_gap_t"] = Slider(title="Maintenance Gap (m)", start=0.2, end=1.0, value=config.get("expert_gap_t", 0.5), step=0.05, visible=_mfe_vis)
+_g3_sum = sum(config.get(k, d) for k, d in [("expert_ht_shield_t",0.2),("expert_structure_t",0.2),("expert_gap_t",0.5)])
+widgets["mfe_group3_subtotal"] = Div(
+    text=f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Shielding: {_g3_sum:.2f} m</div>",
+    visible=_mfe_vis,
+)
+
+# --- Group 4: Outer Shell ---
+widgets["mfe_group4_header"] = Div(
+    text=_card_hdr("Outer Shell", "Vessel, coil, and biological shield"),
+    visible=_mfe_vis,
+)
+widgets["expert_vessel_t"] = Slider(title="Vacuum Vessel (m)", start=0.05, end=0.5, value=config.get("expert_vessel_t", 0.2), step=0.05, visible=_mfe_vis)
+widgets["expert_gap2_t"] = Slider(title="Secondary Gap (m)", start=0.2, end=1.0, value=config.get("expert_gap2_t", 0.5), step=0.05, visible=_mfe_vis)
+widgets["expert_lt_shield_t"] = Slider(title="Low-Temp Shield (m)", start=0.2, end=0.5, value=config.get("expert_lt_shield_t", 0.3), step=0.05, visible=_mfe_vis)
+widgets["expert_coil_t"] = Slider(title="TF Coil (m)", start=0.5, end=2.0, value=config.get("expert_coil_t", 1.0), step=0.1, visible=_mfe_vis)
+widgets["expert_bio_shield_t"] = Slider(title="Biological Shield (m)", start=0.5, end=2.0, value=config.get("expert_bio_shield_t", 1.0), step=0.1, visible=_mfe_vis)
+_g4_sum = sum(config.get(k, d) for k, d in [("expert_vessel_t",0.2),("expert_gap2_t",0.5),("expert_lt_shield_t",0.3),("expert_coil_t",1.0),("expert_bio_shield_t",1.0)])
+widgets["mfe_group4_subtotal"] = Div(
+    text=f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Outer: {_g4_sum:.2f} m</div>",
+    visible=_mfe_vis,
+)
+
+# Total radius KPI
+_total_r = config.get("expert_major_radius_m", 3) + config.get("expert_plasma_t", 1.1) + _g2_sum + _g3_sum + _g4_sum
+widgets["total_radius_display"] = Div(
+    text=f"""<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px;
+                font-family:Inter,Helvetica,Arial,sans-serif;'>
+        <span style='font-size:14px; font-weight:700; color:#00375b;'>Total Machine Radius</span>
+        <span style='font-size:20px; font-weight:800; color:#00375b;'>{_total_r:.2f} m</span>
+    </div>""",
+    styles={"background": "#e0f2fe", "border-radius": "12px", "border": "1px solid #bae6fd", "margin-top": "4px"},
+    visible=_mfe_vis,
+)
+
+# --- IFE Geometry Section ---
+_ife_vis = config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False)
+widgets["ife_geometry_header"] = Div(
+    text="<div style='font-size:16px; font-weight:700; color:#00375b; margin:8px 0 4px 0; font-family:Inter,Helvetica,Arial,sans-serif;'>IFE Spherical Chamber Build</div>",
+    visible=_ife_vis,
+)
+
+widgets["ife_group_header"] = Div(
+    text=_card_hdr("Chamber Components", "Inner chamber through vessel wall"),
+    visible=_ife_vis,
+)
+widgets["expert_chamber_radius_m"] = Slider(title="Inner Chamber Radius (m)", start=5, end=15, value=config.get("expert_chamber_radius_m", 8), step=0.5, visible=_ife_vis)
+widgets["expert_firstwall_t_ife"] = Slider(title="First Wall (m)", start=0.002, end=0.01, value=config.get("expert_firstwall_t_ife", 0.005), step=0.001, visible=_ife_vis)
+widgets["expert_blanket_t_ife"] = Slider(title="Blanket (m)", start=0.3, end=1.0, value=config.get("expert_blanket_t_ife", 0.5), step=0.05, visible=_ife_vis)
+widgets["expert_reflector_t_ife"] = Slider(title="Reflector (m)", start=0.05, end=0.2, value=config.get("expert_reflector_t_ife", 0.1), step=0.01, visible=_ife_vis)
+widgets["expert_structure_t_ife"] = Slider(title="Structure (m)", start=0.1, end=0.3, value=config.get("expert_structure_t_ife", 0.2), step=0.05, visible=_ife_vis)
+widgets["expert_vessel_t_ife"] = Slider(title="Vessel (m)", start=0.1, end=0.3, value=config.get("expert_vessel_t_ife", 0.2), step=0.05, visible=_ife_vis)
+
+_ife_outer = sum(config.get(k, d) for k, d in [("expert_chamber_radius_m",8),("expert_firstwall_t_ife",0.005),("expert_blanket_t_ife",0.5),("expert_reflector_t_ife",0.1),("expert_structure_t_ife",0.2),("expert_vessel_t_ife",0.2)])
+widgets["outer_radius_display"] = Div(
+    text=f"""<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px;
+                font-family:Inter,Helvetica,Arial,sans-serif;'>
+        <span style='font-size:14px; font-weight:700; color:#00375b;'>Outer Vessel Radius</span>
+        <span style='font-size:20px; font-weight:800; color:#00375b;'>{_ife_outer:.2f} m</span>
+    </div>""",
+    styles={"background": "#e0f2fe", "border-radius": "12px", "border": "1px solid #bae6fd", "margin-top": "4px"},
+    visible=_ife_vis,
+)
+
+# Create Expert Config column layout
+expert_col = column(
+    widgets["expert_header"],
+    widgets["use_expert_geometry"],
+    widgets["geometry_mode_info"],
+    # MFE Geometry — grouped cards
+    widgets["mfe_geometry_header"],
+    widgets["mfe_group1_header"],
+    widgets["expert_major_radius_m"],
+    widgets["expert_plasma_t"],
+    widgets["expert_elongation"],
+    widgets["mfe_group1_subtotal"],
+    widgets["mfe_group2_header"],
+    widgets["expert_vacuum_t"],
+    widgets["expert_firstwall_t"],
+    widgets["expert_blanket_t"],
+    widgets["expert_reflector_t"],
+    widgets["mfe_group2_subtotal"],
+    widgets["mfe_group3_header"],
+    widgets["expert_ht_shield_t"],
+    widgets["expert_structure_t"],
+    widgets["expert_gap_t"],
+    widgets["mfe_group3_subtotal"],
+    widgets["mfe_group4_header"],
+    widgets["expert_vessel_t"],
+    widgets["expert_gap2_t"],
+    widgets["expert_lt_shield_t"],
+    widgets["expert_coil_t"],
+    widgets["expert_bio_shield_t"],
+    widgets["mfe_group4_subtotal"],
+    widgets["total_radius_display"],
+    # IFE Geometry
+    widgets["ife_geometry_header"],
+    widgets["ife_group_header"],
+    widgets["expert_chamber_radius_m"],
+    widgets["expert_firstwall_t_ife"],
+    widgets["expert_blanket_t_ife"],
+    widgets["expert_reflector_t_ife"],
+    widgets["expert_structure_t_ife"],
+    widgets["expert_vessel_t_ife"],
+    widgets["outer_radius_display"],
+    styles={'background': '#ffffff', 'border-radius': '16px', 'padding': '24px',
+            'max-width': '92%',
+            'font-family': 'Inter, Helvetica, Arial, sans-serif'},
+)
+
+# Create Expert Config Tab
+expert_tab = TabPanel(child=expert_col, title="Expert Config")
+
+# Attach expert geometry callback AFTER widget is created
+widgets["use_expert_geometry"].on_change("active", toggle_expert_geometry_visibility)
+
 # --- Tabs Layout ---
 
 
@@ -1653,39 +2277,8 @@ highlight_div.text = render_highlight_facts(outputs)
 dscr_metrics_div.text = render_dscr_metrics(outputs)
 equity_metrics_div.text = render_equity_metrics(outputs)
 get_avg_annual_return("Europe")
-tabs = Tabs(tabs=[main_tab, sens_tab], sizing_mode="stretch_both")
+tabs = Tabs(tabs=[main_tab, sens_tab, costing_tab, expert_tab])
 
-
-
-# --- Modern container styles ---
-outer_container_style = {
-    "background": "#00375b",
-    "border-radius": "16px",
-    "box-shadow": "0 2px 8px rgba(0,0,0,0.04)",
-    "border": "1px solid #e0e0e0",
-    "padding": "18px 24px 12px 24px",
-    "margin": "32px auto",
-    "display": "flex",
-    "justify-content": "center",
-    "align-items": "flex-start",
-    "width": "100%",
-    "font-family": "Inter, Helvetica, Arial, sans-serif",
-    "font-weight": "800",
-    "color": "#ffffff",
-    # Remove max-width to allow full width
-}
-main_col_style = {
-    "background": "#00375b",
-    "border-radius": "16px",
-    "box-shadow": "0 2px 8px rgba(0,0,0,0.04)",
-    "border": "1px solid #e0e0e0",
-    "padding": "18px 24px 12px 24px",
-    "margin": "0 0 0 0",
-    "width": "100%",
-    "font-family": "Inter, Helvetica, Arial, sans-serif",
-    "font-weight": "800",
-    "color": "#ffffff",
-}
 sidebar_style = {
     "background": "#00375b",
     "border-radius": "16px",
@@ -1698,52 +2291,29 @@ sidebar_style = {
     "color": "#ffffff",
 }
 
-
-
-
 # --- Wrap sidebar in styled container, use tabs directly ---
-styled_sidebar = column(sidebar, width=360, sizing_mode="stretch_height", styles=sidebar_style)
-# For main results, make sure the main_col stretches full width
-main_col.sizing_mode = "stretch_width"
-main_col.width = None
-styled_tabs = tabs  # Do not wrap Tabs in a column
+styled_sidebar = column(sidebar, width=360, styles=sidebar_style)
+styled_tabs = tabs
 
-# --- Center everything in a wide, light-grey container ---
+# --- Layout: sidebar on left, tabs on right ---
 try:
-    from bokeh.layouts import grid
-    # Use a responsive grid: sidebar in first column, main content in second column
-    outer_grid = grid([
-        [styled_sidebar, styled_tabs]
-    ], sizing_mode="stretch_both")
-    from bokeh.models import Div
-    outer = column(
-        Div(styles=outer_container_style),
-        outer_grid,
-        sizing_mode="stretch_both"
-    )
-
-    curdoc().add_root(outer)
-    curdoc().title = "Fusion Cashflow Dashboard"
+    # Clear any existing roots to prevent duplicate dashboards on reload
+    doc = curdoc()
+    doc.clear()
+    
+    outer_container = row(styled_sidebar, styled_tabs)
+    
+    doc.add_root(outer_container)
+    doc.title = "Fusion Cashflow Dashboard"
     
     # Add favicon to the document
-    curdoc().template_variables["favicon"] = "assets/favicon.ico?v=20250807"
+    doc.template_variables["favicon"] = "assets/favicon.ico?v=20250807"
     
     update_dashboard()
     
     # Add periodic callback to check for optimization results (runs every 500ms)
-    curdoc().add_periodic_callback(check_optimization_results, 500)
+    doc.add_periodic_callback(check_optimization_results, 500)
     
 except Exception as e:
     import traceback
     traceback.print_exc()
-
-
-# --- Make all plots/tables fill width ---
-for fig in [annual_fig, cum_fig, dscr_fig]:
-    if hasattr(fig, 'sizing_mode'):
-        fig.sizing_mode = "stretch_width"
-        fig.width = None
-for tbl in [annual_table, cum_table, dscr_table]:
-    if hasattr(tbl, 'sizing_mode'):
-        tbl.sizing_mode = "stretch_width"
-        tbl.width = None

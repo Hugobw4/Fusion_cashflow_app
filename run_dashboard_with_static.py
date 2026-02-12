@@ -20,8 +20,15 @@ def main():
     # Path to static files
     static_path = os.path.join(current_dir, "src", "fusion_cashflow", "ui", "static")
     
+    # Get allowed WebSocket origins from environment or use wildcard for deployment
+    # For production, set BOKEH_ALLOW_WS_ORIGIN to specific domain (e.g., "myapp.example.com:5011")
+    allowed_origins = os.environ.get('BOKEH_ALLOW_WS_ORIGIN', '*').split(',')
+    if allowed_origins == ['*']:
+        print("Warning: Allowing WebSocket connections from ANY origin. Set BOKEH_ALLOW_WS_ORIGIN for production.")
+    
     print(f"Dashboard path: {dashboard_path}")
     print(f"Static files path: {static_path}")
+    print(f"Allowed WebSocket origins: {allowed_origins}")
     
     # Check if static directory exists
     if not os.path.exists(static_path):
@@ -43,6 +50,14 @@ def main():
         from bokeh.application import Application
         from tornado.web import StaticFileHandler
         
+        # Custom static file handler with no-cache headers to prevent stale content
+        class NoCacheStaticFileHandler(StaticFileHandler):
+            def set_extra_headers(self, path):
+                # Prevent caching to avoid duplicate dashboard issues on first load
+                self.set_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.set_header("Pragma", "no-cache")
+                self.set_header("Expires", "0")
+        
         # Create application from the dashboard script
         handler = ScriptHandler(filename=os.path.join(dashboard_path, "dashboard.py"))
         app = Application(handler)
@@ -53,9 +68,10 @@ def main():
         
         server = Server({'/dashboard': app}, 
                        port=port,
-                       allow_websocket_origin=["*"],
+                       allow_websocket_origin=allowed_origins,
                        extra_patterns=[
-                           (r"/assets/(.*)", StaticFileHandler, {"path": static_path}),
+                           # Serve our assets at /assets/ to avoid conflicts with Bokeh's /static/
+                           (r"/assets/(.*)", NoCacheStaticFileHandler, {"path": static_path}),
                        ])
         
         print("Starting Bokeh server with static file serving...")

@@ -69,8 +69,8 @@ def test_model_robustness():
     financial_tests = [
         ({"input_debt_pct": 0.0}, "100% Equity Financing"),
         ({"input_debt_pct": 0.95}, "95% Debt Financing"),
-        ({"cost_of_debt": 0.001}, "Near-zero interest (0.1%)"),
-        ({"cost_of_debt": 0.25}, "High interest (25%)"),
+        ({"loan_rate": 0.001}, "Near-zero interest (0.1%)"),
+        ({"loan_rate": 0.25}, "High interest (25%)"),
         ({"electricity_price": 5}, "Very low price ($5/MWh)"),
         ({"electricity_price": 500}, "Very high price ($500/MWh)"),
         ({"capacity_factor": 0.1}, "Low capacity factor (10%)"),
@@ -185,7 +185,7 @@ def test_model_robustness():
         ({
             "net_electric_power_mw": 0.5,
             "input_debt_pct": 0.95,
-            "cost_of_debt": 0.20,
+            "loan_rate": 0.20,
             "electricity_price": 10
         }, "Worst case: Tiny + High debt + High interest + Low price"),
         ({

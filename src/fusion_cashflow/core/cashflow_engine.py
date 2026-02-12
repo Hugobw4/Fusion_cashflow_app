@@ -10,6 +10,8 @@
 # No plotting or file I/O in this module.
 # =============================
 
+import time
+import warnings
 import pandas as pd
 import numpy as np
 from scipy.special import expit
@@ -18,22 +20,67 @@ import pandas_datareader.data as web
 import datetime
 import requests
 
-# Try to import power_to_epc module, fall back to manual EPC if not available
+# Import compute_epc for EPC costing (Q_eng derived inside costing module)
 try:
-    import sys
-    import os
-    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-    from power_to_epc import arpa_epc, get_regional_factor, compute_epc
-    POWER_TO_EPC_AVAILABLE = True
+    from .power_to_epc import compute_epc
 except ImportError:
-    POWER_TO_EPC_AVAILABLE = False
+    try:
+        import sys
+        import os
+        sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+        from power_to_epc import compute_epc
+    except ImportError:
+        compute_epc = None
 
-# Try to import Q model for dynamic engineering Q estimation
-try:
-    from q_model import estimate_q_eng
-    Q_MODEL_AVAILABLE = True
-except ImportError:
-    Q_MODEL_AVAILABLE = False
+
+# =============================
+# EPC Cache — skip expensive costing when only financial params change
+# =============================
+_epc_cache_key = None
+_epc_cache_result = None
+
+# Config keys that affect EPC costing (physics / geometry / materials)
+_EPC_RELEVANT_KEYS = (
+    "reactor_type_code", "fuel_type_code", "noak", "power_method",
+    "capacity_factor", "plant_lifetime",
+    "net_electric_power_mw", "fusion_power_mw", "auxiliary_power_mw",
+    "q_plasma", "thermal_efficiency",
+    # Geometry
+    "major_radius_m", "plasma_t", "vacuum_t", "firstwall_t", "blanket_t",
+    "reflector_t", "ht_shield_t", "structure_t", "gap_t", "vessel_t",
+    "coil_t", "elongation",
+    # Materials
+    "first_wall_material", "blanket_type", "structure_material",
+    # Magnets
+    "magnet_technology", "toroidal_field_tesla", "n_tf_coils",
+    "tape_width_m_actual", "coil_thickness_m",
+    # IFE
+    "chamber_radius_m", "driver_energy_mj", "repetition_rate_hz", "target_gain",
+    # Expert overrides
+    "use_expert_geometry",
+    "expert_major_radius_m", "expert_plasma_t", "expert_elongation",
+    "expert_vacuum_t", "expert_firstwall_t", "expert_blanket_t",
+    "expert_reflector_t", "expert_ht_shield_t", "expert_structure_t",
+    "expert_gap_t", "expert_vessel_t", "expert_gap2_t",
+    "expert_lt_shield_t", "expert_coil_t", "expert_bio_shield_t",
+)
+
+
+def _epc_cache_hash(config):
+    """Build a hashable key from physics-relevant config values."""
+    return tuple(config.get(k) for k in _EPC_RELEVANT_KEYS)
+
+
+def _compute_epc_cached(config):
+    """Return cached EPC result if physics params unchanged, else recompute."""
+    global _epc_cache_key, _epc_cache_result
+    key = _epc_cache_hash(config)
+    if key == _epc_cache_key and _epc_cache_result is not None:
+        return _epc_cache_result
+    result = compute_epc(config)
+    _epc_cache_key = key
+    _epc_cache_result = result
+    return result
 
 # =============================
 # Dictionaries & Mappings (Do Not Edit)
@@ -114,9 +161,9 @@ REGIONAL_TAX_RATES = {
     "Europe": 20.18, #https://taxfoundation.org/data/all/global/corporate-tax-rates-by-country-2024/
     "China": 25.00, #https://taxsummaries.pwc.com/peoples-republic-of-china/corporate/taxes-on-corporate-income#:~:text=Under%20the%20CIT%20law%2C%20the,standard%20tax%20rate%20is%2025
     "India": 15.00, #https://taxsummaries.pwc.com/india/corporate/taxes-on-corporate-income#:~:text=Reduced%20rate%20of%20tax%20for,engaged%20in%20generation%20of%20electricity  ENERGY SECTOR SPECIFIC
-    "Southen Africa": 27.00, # https://taxsummaries.pwc.com/south-africa/corporate/taxes-on-corporate-income#:~:text=For%20tax%20years%20ending%20before,or%20after%2031%20March%202023
+    "Southern Africa": 27.00, # https://taxsummaries.pwc.com/south-africa/corporate/taxes-on-corporate-income#:~:text=For%20tax%20years%20ending%20before,or%20after%2031%20March%202023
     "Oceania": 24.38, #https://taxfoundation.org/data/all/global/corporate-tax-rates-by-country-2024/
-    "MENA": 55.00, #https://taxsummaries.pwc.com/oman/corporate/taxes-on-corporate-income#:~:text=Petroleum%20income%20tax NO SPECIFIC ENERGY GENERATION TAX BUT PETROLEUM COMPANYS PAY 55% OMAN AND UAE
+    "MENA": 20.00, #https://taxsummaries.pwc.com/oman/corporate/taxes-on-corporate-income#:~:text=Petroleum%20income%20tax NO SPECIFIC ENERGY GENERATION TAX BUT PETROLEUM COMPANYS PAY 55% OMAN AND UAE
     "Sub-Saharan Africa": 27.28, #https://taxfoundation.org/data/all/global/corporate-tax-rates-by-country-2024/
     "Latin America": 27.36, #https://pages.stern.nyu.edu/~adamodar/pc/archives/countrytaxrates21.xls#:~:text=%5BXLS%5D%20https%3A%2F%2Fpages.stern.nyu.edu%2F,27.36
     "Russia & CIS": 25.00, #https://tass.com/economy/1816413#:~:text=MOSCOW%2C%20July%2012,of%20the%20corporate%20income%20tax
@@ -214,7 +261,15 @@ def get_avg_annual_return(region, start="2000-01-01", end=None):
     if end is None:
         end = pd.Timestamp.today().strftime("%Y-%m-%d")
     try:
-        df = web.DataReader(stooq_symbol, "stooq", start, end)
+        # Add timeout to prevent hanging on slow/blocked networks (e.g., AWS Lightsail)
+        import socket
+        original_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(5)  # 5 second timeout
+        try:
+            df = web.DataReader(stooq_symbol, "stooq", start, end)
+        finally:
+            socket.setdefaulttimeout(original_timeout)
+        
         if df.empty:
             # Final fallback: hardcoded value
             if region in HARDCODED_AVG_RETURNS:
@@ -255,57 +310,133 @@ def straight_line_half_year(total_cost, dep_years, plant_lifetime):
 def build_debt_drawdown_and_amortization(
     principal, loan_rate, repayment_term_years, grace, plant_lifetime, years_construction
 ):
-    """Debt drawdown during construction (S-curve), then amortization (interest only, then principal)."""
+    """
+    Debt drawdown during construction (S-curve), then amortization with grace period.
+    
+    Schedule structure:
+    1. Construction years: Interest-only on cumulative S-curve drawdown
+    2. Grace period: Interest-only on full principal (no principal payments)
+    3. Amortization period: Standard annuity (constant total payment)
+    
+    Args:
+        principal: Total loan amount ($)
+        loan_rate: Annual interest rate (decimal)
+        repayment_term_years: Loan repayment period (years)
+        grace: Grace period duration (years)
+        plant_lifetime: Plant operational lifetime (years)
+        years_construction: Construction duration (years)
+        
+    Returns:
+        drawdown_schedule: List of annual debt drawdowns ($)
+        amort_schedule: List of (principal_payment, interest_payment) tuples ($)
+    """
     total_years = years_construction + plant_lifetime
     drawdown_schedule = [0] * total_years
-    amort_schedule = [(0,0)] * total_years
+    amort_schedule = [(0, 0)] * total_years
     
     # S-curve drawdown over construction years
     if years_construction > 0:
-        x = np.linspace(-6, 6, years_construction)  # Adjust range for desired S-curve shape
+        x = np.linspace(-6, 6, years_construction)
         s_curve = expit(x)
         s_curve_diff = np.diff(s_curve, prepend=0)
         # Normalize to ensure total drawdown equals principal
         normalized_s_curve_drawdown = (s_curve_diff / s_curve_diff.sum()) * principal
         for y in range(years_construction):
             drawdown_schedule[y] = normalized_s_curve_drawdown[y]
-    # Amortization schedule (interest-only during construction, then principal + interest)
-    # Interest during construction is based on the cumulative S-curve drawdown
+    
+    # Interest during construction (based on cumulative S-curve drawdown)
     cumulative_drawdown = np.cumsum(drawdown_schedule)
     for y in range(years_construction):
-        # Interest-only during construction
         interest_payment = cumulative_drawdown[y] * loan_rate
-        amort_schedule[y] = (0, interest_payment)  # No principal payment during construction
-
-    # Principal + interest after construction
+        amort_schedule[y] = (0, interest_payment)
+    
+    # Grace period: Interest-only on full principal
     remaining_principal = principal
-    for y in range(years_construction, total_years):
-        if remaining_principal <= 0:
-            break
-         # Simple amortization for now, can be improved with more complex methods
+    grace_end_year = years_construction + grace
+    
+    for y in range(years_construction, min(grace_end_year, total_years)):
         interest_payment = remaining_principal * loan_rate
-        principal_payment = min(remaining_principal, principal / repayment_term_years)  # Even principal repayment over repayment term
-        amort_schedule[y] = (principal_payment, interest_payment)
-        remaining_principal -= principal_payment
+        amort_schedule[y] = (0, interest_payment)
+    
+    # Amortization period: Standard annuity formula (constant payment)
+    amortization_start_year = grace_end_year
+    
+    if remaining_principal > 0 and repayment_term_years > 0 and amortization_start_year < total_years:
+        # Calculate constant payment using annuity formula
+        # PMT = P × [r(1+r)^n] / [(1+r)^n - 1]
+        if loan_rate > 0:
+            constant_payment = remaining_principal * (
+                loan_rate * (1 + loan_rate) ** repayment_term_years
+            ) / (
+                (1 + loan_rate) ** repayment_term_years - 1
+            )
+        else:
+            # Zero interest rate: divide principal evenly
+            constant_payment = remaining_principal / repayment_term_years
         
+        # Build amortization schedule with constant payment
+        for y in range(amortization_start_year, total_years):
+            if remaining_principal <= 0.01:  # Allow small rounding error
+                break
+            
+            # Interest on remaining balance
+            interest_payment = remaining_principal * loan_rate
+            
+            # Principal is constant payment minus interest
+            principal_payment = constant_payment - interest_payment
+            
+            # Handle final payment (remaining principal might be less than calculated)
+            if principal_payment > remaining_principal:
+                principal_payment = remaining_principal
+                # Recalculate interest for final payment
+                interest_payment = remaining_principal * loan_rate
+            
+            amort_schedule[y] = (principal_payment, interest_payment)
+            remaining_principal -= principal_payment
+            
+            # Stop after repayment term
+            if y - amortization_start_year + 1 >= repayment_term_years:
+                break
+    
     return drawdown_schedule, amort_schedule
 
 
 def lcoe_from_cost_vectors_with_tax(capex_vec, opex_vec, fuel_vec, decom_vec, 
                                    energy_vec, discount_rate, tax_vec):
     """
-    Enhanced LCOE with tax effects:
-    PV(all costs + taxes paid) ÷ PV(discounted energy)
+    Calculate post-tax LCOE including all cash costs to project.
     
-    Note: tax_vec contains actual cash taxes paid to government,
-    which are additional costs, not savings.
+    This is an "all-in" LCOE that includes:
+    - Capital costs (CAPEX)
+    - Operating costs (OPEX)  
+    - Fuel costs
+    - Decommissioning costs
+    - Cash taxes paid to government
+    
+    Post-tax LCOE enables fair comparison across regions with different
+    tax regimes by showing the true all-in cost per MWh including tax burden.
+    
+    For technology-only comparison (ignoring tax policy differences),
+    consider using pre-tax LCOE by excluding tax_vec.
+    
+    Args:
+        capex_vec: Capital expenditure vector ($/year)
+        opex_vec: Operating expenditure vector ($/year)
+        fuel_vec: Fuel cost vector ($/year)
+        decom_vec: Decommissioning cost vector ($/year)
+        energy_vec: Energy production vector (MWh/year)
+        discount_rate: Discount rate for NPV calculation (decimal)
+        tax_vec: Cash taxes paid vector ($/year)
+        
+    Returns:
+        LCOE in $/MWh (post-tax, all-in basis)
     """
-    # Calculate total costs including taxes
+    # Calculate total costs including taxes (real cash costs to project)
     total_costs = (np.array(capex_vec) + 
                    np.array(opex_vec) + 
                    np.array(fuel_vec) + 
                    np.array(decom_vec) +
-                   np.array(tax_vec))  # Add taxes as costs, not subtract!
+                   np.array(tax_vec))  # Taxes are real cash costs to project
     
     pv_costs = npf.npv(discount_rate, total_costs)
     pv_energy = npf.npv(discount_rate, energy_vec)
@@ -344,53 +475,104 @@ def equity_multiple(cashflows, equity_investment):
 # =============================
 def get_default_config():
     """Return a dict of all model configuration parameters."""
-    construction_start_year = 2007
-    project_energy_start_year = 2034
+    construction_start_year = 2028
+    project_energy_start_year = 2031
     years_construction = project_energy_start_year - construction_start_year  # Default: difference of years
     return {
-        "project_name": "ITER",
-        "project_location": "South of France",
+        "project_name": "NOAK ARC",
+        "project_location": "USA",
         "construction_start_year": construction_start_year,
         "years_construction": years_construction,  # Always numeric, so included in sensitivity
         "project_energy_start_year": project_energy_start_year,
-        "plant_lifetime": 30,
+        "plant_lifetime": 32,
+        
+        # Reactor configuration (canonical codes: MFE, IFE, PWR)
+        "reactor_type": "MFE",
         "power_method": "MFE",
-        "net_electric_power_mw": 500,  # Core driver
-        "capacity_factor": 0.9,
-        "fuel_type": "Lithium-Solid",
-        "input_debt_pct": 0.70,
-        "cost_of_debt": 0.055,
-        "loan_rate": 0.055,
+        "fuel_type": "DT",  # Canonical fuel codes: DT, DD, DHE3, PB11
+        
+        # Core power parameters
+        "net_electric_power_mw": 400,  # Core driver
+        "capacity_factor": 0.92,
+        
+        # PyFECONS material selections (MFE)
+        "first_wall_material": "BERYLLIUM",  # Options: BERYLLIUM, TUNGSTEN, LIQUID_LITHIUM
+        "blanket_type": "SOLID_BREEDER_LI2TIO3",  # Options: SOLID_BREEDER_LI2TIO3, LIQUID_BREEDER_FLIBE, LIQUID_BREEDER_PBLI
+        "structure_material": "FERRITIC_STEEL",  # Options: FERRITIC_STEEL, STAINLESS_STEEL_316, INCOLOY
+        
+        # PyFECONS magnet configuration (MFE only)
+        "magnet_technology": "HTS_REBCO",  # Options: HTS_REBCO, HTS_YBCO, LTS_NB3SN, LTS_NBTI
+        "toroidal_field_tesla": 5.0,  # Toroidal field strength (T)
+        
+        # Q_eng is calculated by the costing power balance module (no manual override in cashflow)
+        
+        # Expert geometry overrides
+        "use_expert_geometry": False,  # If True, use expert_* parameters; if False, scale from template
+        
+        # Expert MFE radial build parameters (meters) - names match dashboard widgets
+        "expert_major_radius_m": 3.0,
+        "expert_plasma_t": 1.1,
+        "expert_elongation": 3.0,
+        "expert_vacuum_t": 0.1,
+        "expert_firstwall_t": 0.02,
+        "expert_blanket_t": 0.8,
+        "expert_reflector_t": 0.2,
+        "expert_ht_shield_t": 0.2,
+        "expert_structure_t": 0.2,
+        "expert_gap_t": 0.5,
+        "expert_vessel_t": 0.2,
+        "expert_gap2_t": 0.5,
+        "expert_lt_shield_t": 0.3,
+        "expert_coil_t": 1.0,
+        "expert_bio_shield_t": 1.0,
+        
+        # Financial parameters
+        "input_debt_pct": 0.50,
+        "loan_rate": 0.05,
         "financing_fee": 0.015,
         "repayment_term_years": 20,
         "grace_period_years": 3,
-        "total_epc_cost": 13000000000,  # Core driver - used only if override_epc=True
-        "override_epc": False,  # NEW: If True, use manual total_epc_cost; if False, auto-generate from power
-        "override_q_eng": False,  # NEW: If True, use manual Q_eng; if False, auto-generate from Q model
-        "manual_q_eng": 4.0,  # Manual Q engineering value (used only if override_q_eng=True)
         "extra_capex_pct": 0.05,
-        "project_contingency_pct": 0.15,
-        "process_contingency_pct": 0.20,
+        # Contingency handled by CAS 29 in costing module (no double-counting)
+        "project_contingency_pct": 0.0,
+        "process_contingency_pct": 0.0,
+        
+        # O&M parameters
         "fixed_om_per_mw": 60000,
         "variable_om": 2.7,
-        "electricity_price": 100,  # Core driver
+        "electricity_price": 81,  # Core driver
+        
+        # Depreciation & end-of-life
         "dep_years": 20,
         "salvage_value": 10000000,
         "decommissioning_cost": 843000000,
+        
+        # Economic parameters
         "use_real_dollars": False,
         "price_escalation_active": True,
         "escalation_rate": 0.02,
         "include_fuel_cost": True,
         "apply_tax_model": True,
+        
+        # Ramp-up parameters
         "ramp_up": True,
         "ramp_up_years": 3,
         "ramp_up_rate_per_year": 0.33,
+        
+        # Industrial heat sales
+        "enable_heat_sales": False,
+        "heat_sales_fraction": 0.10,
+        "heat_price_per_mwh_th": 30,
+        
+        # EPC override
+        "override_epc": False,
+        "override_epc_value": 5000000000,
     }
 
 
 def get_mfe_config():
-    """Return default configuration for MFE (Magnetic Fusion Energy) - ITER-based."""
-    return get_default_config()  # Uses ITER as the MFE baseline
+    """Return default configuration for MFE (Magnetic Fusion Energy) - NOAK ARC-based."""
+    return get_default_config()  # Uses NOAK ARC as the MFE baseline
 
 
 def get_pwr_config():
@@ -407,13 +589,10 @@ def get_pwr_config():
         "capacity_factor": 0.90,
         "fuel_type": "Fission Benchmark Enriched Uranium",
         "input_debt_pct": 0.70,
-        "cost_of_debt": 0.05,
         "loan_rate": 0.05,
         "financing_fee": 0.01,
         "repayment_term_years": 30,
         "grace_period_years": 3,
-        "total_epc_cost": 35000000000,
-        "override_epc": True,  # PWR uses historical actual cost
         "extra_capex_pct": 0.0,
         "project_contingency_pct": 0.0,
         "process_contingency_pct": 0.0,
@@ -431,6 +610,15 @@ def get_pwr_config():
         "ramp_up": True,
         "ramp_up_years": 3,
         "ramp_up_rate_per_year": 0.33,
+        
+        # Industrial heat sales
+        "enable_heat_sales": False,
+        "heat_sales_fraction": 0.10,
+        "heat_price_per_mwh_th": 30,
+        
+        # EPC override
+        "override_epc": False,
+        "override_epc_value": 35000000000,
     }
 
 
@@ -451,18 +639,16 @@ def get_ife_config():
         "capacity_factor": 0.85,  # Slightly lower than MFE due to laser maintenance
         "fuel_type": "Tritium",
         "input_debt_pct": 0.70,
-        "cost_of_debt": 0.06,  # Slightly higher risk than MFE
         "loan_rate": 0.06,
         "financing_fee": 0.02,
         "repayment_term_years": 20,
         "grace_period_years": 3,
-        "total_epc_cost": 15000000000,  # Estimated higher than MFE due to laser systems
-        "override_epc": False,  # Use auto-generation for IFE
-        "override_q_eng": False,
-        "manual_q_eng": 3.5,  # Slightly lower Q than MFE
+        # No total_epc_cost or override_epc - always use embedded costing system
+        # Q_eng is calculated by costing power balance module
         "extra_capex_pct": 0.08,  # Higher contingency for laser systems
-        "project_contingency_pct": 0.18,
-        "process_contingency_pct": 0.22,
+        # Contingency handled by CAS 29 in costing module (no double-counting)
+        "project_contingency_pct": 0.0,
+        "process_contingency_pct": 0.0,
         "fixed_om_per_mw": 75000,  # Higher O&M due to laser maintenance
         "variable_om": 3.2,
         "electricity_price": 100,
@@ -477,6 +663,16 @@ def get_ife_config():
         "ramp_up": True,
         "ramp_up_years": 2,
         "ramp_up_rate_per_year": 0.5,
+        
+        # Industrial heat sales
+        "enable_heat_sales": False,
+        "heat_sales_fraction": 0.10,
+        "heat_price_per_mwh_th": 30,
+        
+        # EPC override
+        "override_epc": False,
+        "override_epc_value": 5000000000,
+        
         # IFE-specific parameters
         "impfreq": 1.0,  # Implosion frequency in Hz
     }
@@ -495,8 +691,6 @@ def get_default_config_by_power_method(power_method):
 
 
 def run_cashflow_scenario(config):
-    import time
-    # print('[PROFILE] run_cashflow_scenario: start')
     t0 = time.time()
     # --- Input/config setup ---
     construction_start_year = config["construction_start_year"]
@@ -511,38 +705,30 @@ def run_cashflow_scenario(config):
     plant_lifetime = int(round(plant_lifetime))
     power_method = config["power_method"]
     
-    # --- Power Method Specific Adjustments ---
-    # Only apply fuel type logic based on power method
-    if power_method == "MFE":  # Magnetic Fusion Energy (Tokamak)
-        # MFE should use fusion-compatible fuels
-        if config["fuel_type"] not in ["Lithium-Solid", "Lithium-Liquid", "Tritium"]:
-            fuel_type = "Lithium-Solid"  # Default for MFE
-        else:
-            fuel_type = config["fuel_type"]
-        
-    elif power_method == "IFE":  # Inertial Fusion Energy (Laser-driven)
-        # IFE should use fusion-compatible fuels
-        if config["fuel_type"] not in ["Lithium-Solid", "Lithium-Liquid", "Tritium"]:
-            fuel_type = "Tritium"  # Default for IFE
-        else:
-            fuel_type = config["fuel_type"]
-        
-    elif power_method == "PWR":  # Pressurized Water Reactor (Fission)
-        # PWR must use enriched uranium fuel
+    # --- Fuel Type Resolution ---
+    # Use canonical fuel_type_code (DT, DD, DHE3, PB11) from dashboard mapping
+    # Fall back to fuel_type for backward compatibility with PWR configs
+    fuel_code = config.get("fuel_type_code", "")
+    raw_fuel = config.get("fuel_type", "")
+    
+    if power_method == "PWR":
         fuel_type = "Fission Benchmark Enriched Uranium"
-            
+    elif fuel_code in ("DT", "DD"):
+        fuel_type = "Lithium-Solid"  # DT/DD fusion uses lithium breeding
+    elif fuel_code == "DHE3":
+        fuel_type = "Tritium"  # DHe3 still needs some tritium
+    elif fuel_code == "PB11":
+        fuel_type = "Tritium"  # pB11 aneutronic, minimal fuel cost
+    elif raw_fuel in ("Lithium-Solid", "Lithium-Liquid", "Tritium", "Fission Benchmark Enriched Uranium"):
+        fuel_type = raw_fuel  # Legacy format, pass through
     else:
-        # Default case - use config fuel type
-        fuel_type = config["fuel_type"]
-        if fuel_type not in ["Lithium-Solid", "Lithium-Liquid", "Tritium", "Fission Benchmark Enriched Uranium"]:
-            fuel_type = "Lithium-Solid"
+        fuel_type = "Lithium-Solid"  # Default fallback
     
     # Apply power method adjustments to key variables
-    net_electric_power_mw = config["net_electric_power_mw"]
+    net_electric_power_mw = config.get("net_electric_power_mw", 400)
     capacity_factor = config["capacity_factor"]  # Use config value directly
     input_debt_pct = config["input_debt_pct"]
     input_equity_pct = 1.0 - input_debt_pct
-    cost_of_debt = config["cost_of_debt"]
     loan_rate = config["loan_rate"]
     financing_fee = config["financing_fee"]
     repayment_term_years = config["repayment_term_years"]
@@ -550,48 +736,54 @@ def run_cashflow_scenario(config):
     grace_period_years = config["grace_period_years"]
     grace_period_years = int(round(grace_period_years))
     
-    # --- Power-to-EPC Integration ---
-    override_epc = config.get("override_epc", False)
-    if override_epc or not POWER_TO_EPC_AVAILABLE:
-        # Use manual EPC cost from config
-        total_epc_cost = config["total_epc_cost"]
+    # --- Power-to-EPC Integration (cached when only financial params change) ---
+    p_thermal_mw = 0.0  # Will be set from costing if available
+    
+    if config.get("override_epc", False):
+        # Manual EPC override — skip costing entirely, use slider values for P_net/O&M
+        total_epc_cost = config.get("override_epc_value", 5_000_000_000)
+        config["_epc_breakdown"] = {}
+        config["_q_eng"] = config.get("manual_q_eng", 4.0)
     else:
-        # Auto-generate EPC cost from power using dispatcher
         try:
-            region_factor = get_regional_factor(config["project_location"])
-            
-            # Use the new dispatcher function to handle different power methods
-            epc_cfg = {
-                "net_mw": net_electric_power_mw,
-                "years": years_construction,
-                "region_factor": region_factor,
-                "noak": True,  # Assume NOAK for cost optimization
-                "fuel_type": fuel_type,  # Pass fuel type for IFE
-                "impfreq": config.get("impfreq", 1.0),  # Implosion frequency for IFE
-            }
-            
-            # Call dispatcher based on power method
-            epc_result = compute_epc(power_method, epc_cfg)
+            epc_result = _compute_epc_cached(config)
             total_epc_cost = epc_result["total_epc"]
             
-            # Store EPC breakdown for analysis (convert to original format for compatibility)
-            config["_epc_breakdown"] = {
-                "total_epc_cost": epc_result["total_epc"],
-                "cost_per_kw": epc_result["epc_per_kw"],
-                "breakdown": epc_result["breakdown"],
-                "power_balance": epc_result.get("power_balance", {}),
-                "method": power_method,
-            }
+            config["_epc_breakdown"] = epc_result
+            config["_q_eng"] = epc_result.get("power_balance", {}).get("q_eng", 0)
+            
+            # Use physics-derived P_net for revenue/energy/O&M consistency
+            p_net_from_costing = epc_result.get("power_balance", {}).get("p_net", None)
+            if p_net_from_costing is not None and p_net_from_costing > 0:
+                net_electric_power_mw = p_net_from_costing
+                config["net_electric_power_mw"] = p_net_from_costing
+            
+            # Extract p_thermal for industrial heat sales
+            p_thermal_from_costing = epc_result.get("power_balance", {}).get("p_thermal", 0)
+            if p_thermal_from_costing and p_thermal_from_costing > 0:
+                p_thermal_mw = p_thermal_from_costing
+            
+            # Use costing-derived O&M if available (physics-based, CAS 70)
+            costing_fixed_om = epc_result.get("costing_fixed_om_per_mw", None)
+            if costing_fixed_om is not None and costing_fixed_om > 0:
+                config["fixed_om_per_mw"] = costing_fixed_om
+            
+            # Use costing-derived annual fuel cost if available (physics-based, CAS 80)
+            costing_fuel = epc_result.get("costing_annual_fuel_cost", None)
+            if costing_fuel is not None:
+                config["_costing_annual_fuel_cost"] = costing_fuel
             
         except Exception as e:
-            # Fallback to manual EPC if auto-generation fails
-            total_epc_cost = config["total_epc_cost"]
-            import warnings
-            warnings.warn(f"Power-to-EPC auto-generation failed: {e}. Using manual EPC cost.")
+            warnings.warn(f"Embedded costing system failed: {e}. Using default $5B EPC cost.")
+            total_epc_cost = 5_000_000_000
+            config["_epc_breakdown"] = {}
+            config["_q_eng"] = 1.0
     
     extra_capex = total_epc_cost * config["extra_capex_pct"]
-    project_contingency_cost = total_epc_cost * config["project_contingency_pct"]
-    process_contingency_cost = total_epc_cost * config["process_contingency_pct"]
+    # NOTE: Contingency is handled by CAS 29 in the costing module.
+    # project_contingency_pct and process_contingency_pct removed to avoid double-counting.
+    project_contingency_cost = 0
+    process_contingency_cost = 0
     fixed_om = config["fixed_om_per_mw"] * net_electric_power_mw  # Use config values directly
     variable_om = config["variable_om"]  # Use config value directly
     electricity_price = config["electricity_price"]
@@ -611,25 +803,37 @@ def run_cashflow_scenario(config):
     # t1 = time.time(); print(f'[PROFILE] after input/config setup: {t1-t0:.2f}s')
     # --- Region/risk-free/tax calculations ---
     annual_energy_output_mwh = (net_electric_power_mw * 8760) * capacity_factor
-    if fuel_type == "Lithium-Solid":
-        fuel_price_per_g = 152.928
-        burn_kg_per_year_per_gw = 100
-        burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
-        fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
-    elif fuel_type == "Tritium":
-        fuel_price_per_g = 300
-        fuel_grams_per_mwh = 0.00947
-    elif fuel_type == "Lithium-Liquid":
-        fuel_price_per_g = 152.928
-        burn_kg_per_year_per_gw = 100
-        burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
-        fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
-    elif fuel_type == "Fission Benchmark Enriched Uranium":
-        fuel_price_per_g = 1.663
-        fuel_grams_per_mwh = 2.78 #https://world-nuclear.org/information-library/economic-aspects/economics-of-nuclear-power
+    
+    # Fuel cost: prefer costing-derived CAS 80 (physics-based) over hardcoded models
+    costing_annual_fuel = config.get("_costing_annual_fuel_cost", None)
+    if costing_annual_fuel is not None and costing_annual_fuel > 0 and power_method != "PWR":
+        # Use costing module's annual fuel cost (CAS 80) as base
+        total_fuel_cost = costing_annual_fuel
+        # Derive per-MWh rate for operation loop (escalation applied there)
+        fuel_cost_per_mwh_base = total_fuel_cost / annual_energy_output_mwh if annual_energy_output_mwh > 0 else 0
+        use_costing_fuel = True
     else:
-        raise ValueError("Invalid fuel type. Choose 'Lithium' or 'Tritium'.")
-    total_fuel_cost = annual_energy_output_mwh * fuel_grams_per_mwh * fuel_price_per_g
+        # Fallback to legacy fuel cost model
+        use_costing_fuel = False
+        if fuel_type == "Lithium-Solid":
+            fuel_price_per_g = 152.928
+            burn_kg_per_year_per_gw = 100
+            burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
+            fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
+        elif fuel_type == "Tritium":
+            fuel_price_per_g = 300
+            fuel_grams_per_mwh = 0.00947
+        elif fuel_type == "Lithium-Liquid":
+            fuel_price_per_g = 152.928
+            burn_kg_per_year_per_gw = 100
+            burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
+            fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
+        elif fuel_type == "Fission Benchmark Enriched Uranium":
+            fuel_price_per_g = 1.663
+            fuel_grams_per_mwh = 2.78  # https://world-nuclear.org/information-library/economic-aspects/economics-of-nuclear-power
+        else:
+            raise ValueError("Invalid fuel type. Choose 'Lithium' or 'Tritium'.")
+        total_fuel_cost = annual_energy_output_mwh * fuel_grams_per_mwh * fuel_price_per_g
     region = map_location_to_region(config["project_location"])
     risk_free_rate = get_risk_free_rate(region)
     scenario = "base"
@@ -641,7 +845,8 @@ def run_cashflow_scenario(config):
         avg_annual_return = 0.07
     market_risk_premium = avg_annual_return - risk_free_rate
     cost_of_equity = risk_free_rate + levered_beta * market_risk_premium
-    cost_of_debt_posttax = cost_of_debt * (1 - tax_rate)
+    cost_of_debt = loan_rate  # Pre-tax cost of debt = nominal loan rate
+    cost_of_debt_posttax = loan_rate * (1 - tax_rate)  # After-tax cost of debt
     wacc = input_equity_pct * cost_of_equity + input_debt_pct * cost_of_debt_posttax
     discount_rate = wacc
     financing_charges = total_epc_cost * financing_fee
@@ -663,6 +868,7 @@ def run_cashflow_scenario(config):
     # --- Debt/amortization/depreciation setup ---
     cashflow_type = []
     revenue_vec = []
+    heat_revenue_vec = []
     fuel_vec = []
     om_vec = []
     depreciation_vec = []
@@ -708,14 +914,18 @@ def run_cashflow_scenario(config):
         esc = escalation_factors[y]
         capex_outflow = drawdown_schedule[y] * esc
         financing_outflow = financing_charges / years_construction * esc
-        interest_during_construction = (
-            sum(drawdown_schedule[:y]) * loan_rate * esc if y > 0 else 0
-        )
+        
+        # Use pre-calculated interest from amortization schedule (prevents double-counting)
+        # amort_schedule[y] = (principal_payment, interest_payment)
+        # During construction: principal=0, interest based on cumulative drawdown
+        interest_during_construction = amort_schedule[y][1] * esc
+        
         net_cf = -(
             capex_outflow + financing_outflow + interest_during_construction
         )
         cashflow_type.append("Construction")
         revenue_vec.append(0)
+        heat_revenue_vec.append(0)
         fuel_vec.append(0)
         om_vec.append(0)
         depreciation_vec.append(0)
@@ -749,15 +959,38 @@ def run_cashflow_scenario(config):
             ramp_mult = 1.0
         price = electricity_price * esc
         annual_energy = annual_energy_output_mwh * ramp_mult
+        
+        # --- Industrial heat sales ---
+        heat_rev = 0.0
+        enable_heat_sales = config.get("enable_heat_sales", False)
+        if enable_heat_sales and p_thermal_mw > 0:
+            heat_frac = config.get("heat_sales_fraction", 0.10)
+            heat_price = config.get("heat_price_per_mwh_th", 30) * esc
+            # Thermal energy sold as heat (MWh_th)
+            heat_energy_mwh_th = p_thermal_mw * 8760 * capacity_factor * heat_frac * ramp_mult
+            heat_rev = heat_energy_mwh_th * heat_price
+            # Reduce electricity output — diverted thermal energy doesn't reach turbine
+            annual_energy *= (1.0 - heat_frac)
+        
         energy_vec.append(annual_energy)
-        revenue = annual_energy * price
+        revenue = annual_energy * price + heat_rev
+        heat_revenue_vec.append(heat_rev)
         revenue_vec.append(revenue)
-        fuel_price = fuel_price_per_g * esc
-        fuel = (
-            (fuel_grams_per_mwh * annual_energy) * fuel_price
-            if include_fuel_cost
-            else 0
-        )
+        if use_costing_fuel:
+            # Costing-derived fuel: scale by ramp and escalation
+            fuel = (
+                fuel_cost_per_mwh_base * annual_energy * esc
+                if include_fuel_cost
+                else 0
+            )
+        else:
+            # Legacy fuel model
+            fuel_price = fuel_price_per_g * esc
+            fuel = (
+                (fuel_grams_per_mwh * annual_energy) * fuel_price
+                if include_fuel_cost
+                else 0
+            )
         fuel_vec.append(fuel)
         variable_om_cost = variable_om * annual_energy * esc
         fixed_om_cost = fixed_om * esc
@@ -770,22 +1003,20 @@ def run_cashflow_scenario(config):
         op_profit = revenue - fuel - om
         cash_tax = max(0, op_profit - depreciation) * tax_rate
         tax_vec.append(cash_tax)
-        if op_year < (
-            project_energy_start_year + grace_period_years - construction_start_year
-        ):
-            principal_payment, interest_payment = 0, 0
+        # Debt service from pre-calculated amortization schedule
+        # Schedule already accounts for:
+        # - Construction years: Interest on cumulative drawdown
+        # - Grace period: Interest-only on full principal  
+        # - Amortization period: Principal + interest (constant payment annuity)
+        if op_year < len(amort_schedule):
+            principal_payment, interest_payment = amort_schedule[op_year]
+            # Apply escalation to debt service
+            principal_payment *= esc
+            interest_payment *= esc
         else:
-            idx = op_year - (
-                project_energy_start_year + grace_period_years - construction_start_year
-            )
-            if 0 <= idx < grace_period_years:
-                principal_payment, interest_payment = 0, amort_schedule[idx][1]
-            elif (
-                grace_period_years <= idx < (grace_period_years + repayment_term_years)
-            ):
-                principal_payment, interest_payment = amort_schedule[idx]
-            else:
-                principal_payment, interest_payment = 0, 0
+            # Beyond schedule (loan fully repaid or past plant life)
+            principal_payment, interest_payment = 0, 0
+        
         principal_paid_vec.append(principal_payment)
         interest_paid_vec.append(interest_payment)
         debt_service = principal_payment + interest_payment
@@ -966,6 +1197,7 @@ def run_cashflow_scenario(config):
         "equity_cf_vec": equity_cf_vec,
         "cumulative_equity_cf_vec": cumulative_equity_cf_vec,
         "energy_vec": energy_vec,
+        "heat_revenue_vec": heat_revenue_vec,
         "toc": toc,
         "total_epc_cost": total_epc_cost,
         "input_equity_pct": input_equity_pct,
@@ -982,6 +1214,7 @@ def run_cashflow_scenario(config):
         "project_energy_start_year": project_energy_start_year,
         "year_labels_int": [int(y) if str(y).isdigit() else y for y in year_labels],
         "debt_drawdown_vec": debt_drawdown_vec,
+        "epc_breakdown": config.get("_epc_breakdown", {}),
     }
 
 
@@ -1009,15 +1242,21 @@ def run_sensitivity_analysis(base_config):
     drivers = [
         ("Construction Years", ["years_construction"]),
         ("Electricity Price", ["electricity_price"]),
-        ("EPC Cost", ["total_epc_cost"]),
-        ("Net Electric Power (MW)", ["net_electric_power_mw"]),
+        ("Plasma Q", ["q_plasma"]),
         ("Capacity Factor", ["capacity_factor"]),
         ("Debt Percentage", ["input_debt_pct"]),
     ]
     metrics = []
     # For each driver and band
     for driver, keys in drivers:
-        base_outputs = run_cashflow_scenario(base_config)
+        # Note: EPC Cost sensitivity now uses embedded costing system
+        # The costing will be recalculated for each scenario automatically
+        if driver == "EPC Cost":
+            base_config_for_driver = copy.deepcopy(base_config)
+            base_outputs = run_cashflow_scenario(base_config_for_driver)
+        else:
+            base_outputs = run_cashflow_scenario(base_config)
+        
         base_metrics = {
             "Scenario": f"{driver} 0%",
             "Driver": driver,
@@ -1044,6 +1283,9 @@ def run_sensitivity_analysis(base_config):
                         continue  # Key missing, skip this band
                 config_mod[key] *= 1 + band
                 
+                # Note: When modifying parameters, embedded costing will recalculate automatically
+                # No need to override - the new system handles parameter changes dynamically
+                
                 # Apply constraints to keep parameters within reasonable bounds
                 if key == "capacity_factor":
                     config_mod[key] = max(0.1, min(1.0, config_mod[key]))  # Keep between 10% and 100%
@@ -1068,32 +1310,3 @@ def run_sensitivity_analysis(base_config):
             )
     df = pd.DataFrame(metrics)
     return df
-
-def get_estimated_q_eng(config):
-    """
-    Get estimated engineering Q for the given configuration.
-    
-    Args:
-        config: Configuration dictionary with power and technology parameters
-        
-    Returns:
-        Float: Engineering Q estimate, either from Q model or manual override
-    """
-    override_q_eng = config.get("override_q_eng", False)
-    
-    if override_q_eng:
-        # Use manual Q_eng value
-        return config.get("manual_q_eng", 4.0)
-    elif Q_MODEL_AVAILABLE:
-        # Use dynamic Q model
-        try:
-            net_mw = config["net_electric_power_mw"]
-            power_method = config.get("power_method", "MFE")
-            return estimate_q_eng(net_mw, power_method)
-        except Exception as e:
-            import warnings
-            warnings.warn(f"Q model estimation failed: {e}. Using default Q=4.0")
-            return 4.0
-    else:
-        # Fallback to default Q value
-        return 4.0

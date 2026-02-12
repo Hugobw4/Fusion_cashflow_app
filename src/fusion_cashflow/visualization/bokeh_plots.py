@@ -74,10 +74,13 @@ def plot_annual_cashflow_bokeh(outputs, config):
         title="Annual Cash Flows",
         x_axis_label="Year",
         y_axis_label="Annual Cash Flow ($)",
-        width=800,
         height=350,
+        sizing_mode="stretch_width",
         tools="pan,wheel_zoom,box_zoom,reset,save",
     )
+    p.min_border_left = 0
+    p.min_border_right = 0
+    p.yaxis.axis_label_standoff = 0
     p.line(
         "year",
         "unlevered",
@@ -209,10 +212,13 @@ def plot_cumulative_cashflow_bokeh(outputs, config):
         title="Cumulative Cash Flows",
         x_axis_label="Year",
         y_axis_label="Cumulative Cash Flow ($)",
-        width=800,
         height=350,
+        sizing_mode="stretch_width",
         tools="pan,wheel_zoom,box_zoom,reset,save",
     )
+    p.min_border_left = 0
+    p.min_border_right = 0
+    p.yaxis.axis_label_standoff = 0
     p.line(
         "year",
         "cum_unlevered",
@@ -362,11 +368,15 @@ def plot_dscr_profile_bokeh(outputs, config):
         title="Debt Service Coverage Ratio (DSCR) Profile",
         x_axis_label="Year",
         y_axis_label="DSCR",
-        width=800,
         height=350,
+        sizing_mode="stretch_width",
         tools="pan,wheel_zoom,box_zoom,reset,save",
         y_range=Range1d(0, 5),
     )
+    p.min_border_left = 0
+    p.min_border_right = 0
+    p.yaxis.axis_label_standoff = 0
+    p.yaxis.formatter = NumeralTickFormatter(format="0,0")
     # keep the y-axis readable by capping extreme values
     dscr_arr = np.array(source.data["dscr"], dtype=float)
     dscr_arr = np.clip(dscr_arr, None, 5)
@@ -858,11 +868,10 @@ def plot_sensitivity_heatmap(outputs, config, sensitivity_df):
         x_range=FactorRange(*bands),
         y_range=FactorRange(*drivers[::-1]),  # Reverse order for top-to-bottom
         x_axis_location="above",
-        width=1000,
-        height=400,
+        width=1200,
+        height=500,
         tools="hover,save",
         toolbar_location="right",
-        sizing_mode="scale_width",
         tooltips=[
             ("Driver", "@Driver"),
             ("Change", "@Band"),
