@@ -16,9 +16,16 @@ import pandas as pd
 import numpy as np
 from scipy.special import expit
 import numpy_financial as npf
-import pandas_datareader.data as web
 import datetime
 import requests
+
+# Optional: pandas_datareader (fallback to hardcoded values if not available)
+try:
+    import pandas_datareader.data as web
+    PANDAS_DATAREADER_AVAILABLE = True
+except ImportError:
+    PANDAS_DATAREADER_AVAILABLE = False
+    web = None
 
 # Import compute_epc for EPC costing (Q_eng derived inside costing module)
 try:
@@ -249,6 +256,10 @@ def get_avg_annual_return(region, start="2000-01-01", end=None):
     ticker = REGION_INDEX_TICKERS.get(region)
     if not ticker:
         return HARDCODED_AVG_RETURNS.get(region, 0.07)  # fallback
+
+    # If pandas_datareader not available, use hardcoded values
+    if not PANDAS_DATAREADER_AVAILABLE or web is None:
+        return HARDCODED_AVG_RETURNS.get(region, 0.07)
 
     # Ping Stooq once per process per day
     if not hasattr(get_avg_annual_return, '_stooq_available') or get_avg_annual_return._stooq_available_date != today:

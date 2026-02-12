@@ -15,8 +15,9 @@ numpy>=1.20.0
 numpy_financial>=1.0.0
 jinja2>=3.0.0
 
-# Data reading (compatible version for Python 3.13)
-pandas_datareader>=0.10.0,<0.11.0
+# Data reading - DISABLED for Render compatibility (Python 3.13 issue)
+# pandas_datareader has hardcoded fallback values in cashflow_engine.py
+# pandas_datareader>=0.10.0,<0.11.0
 
 # Scientific computing
 scipy>=1.9.0
