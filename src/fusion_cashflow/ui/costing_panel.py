@@ -94,7 +94,7 @@ def create_costing_panel(epc_results, config=None):
         sizing_mode="stretch_width",
         styles={
             "padding": "20px 40px",
-            "max-width": "960px",
+            "max-width": "92%",
             "margin": "0 auto",
             "background": "#ffffff",
             "border-radius": "16px",

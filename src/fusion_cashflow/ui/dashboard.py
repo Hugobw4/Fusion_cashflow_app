@@ -2267,7 +2267,7 @@ expert_col = column(
     widgets["expert_vessel_t_ife"],
     widgets["outer_radius_display"],
     styles={'background': '#ffffff', 'border-radius': '16px', 'padding': '24px',
-            'max-width': '960px', 'margin': '0 auto',
+            'max-width': '92%', 'margin': '0 auto',
             'font-family': 'Inter, Helvetica, Arial, sans-serif'},
 )
 
