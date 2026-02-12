@@ -10,7 +10,15 @@ sys.path.insert(0, os.path.abspath(src_path))
 print(f"Added to sys.path: {os.path.abspath(src_path)}")  # Debug print
 
 import holoviews as hv
-import nevergrad as ng
+
+# Try to import nevergrad for optimization features (optional)
+try:
+    import nevergrad as ng
+    NEVERGRAD_AVAILABLE = True
+except ImportError:
+    print("Warning: nevergrad not available. Optimization features will be disabled.")
+    ng = None
+    NEVERGRAD_AVAILABLE = False
 
 hv.extension("bokeh")
 from bokeh.io import curdoc
@@ -28,6 +36,7 @@ from bokeh.models import (
     ColumnDataSource,
     Tabs,
     TabPanel,
+    RadioButtonGroup,
 )
 
 # Import costing panel module
@@ -283,7 +292,7 @@ try:
     scripts_path = os.path.join(current_dir, "..", "..", "..", "scripts")
     sys.path.insert(0, os.path.abspath(scripts_path))
     from optimization_tools import single_objective_fitness
-    OPTIMIZATION_AVAILABLE = True
+    OPTIMIZATION_AVAILABLE = NEVERGRAD_AVAILABLE  # Requires both nevergrad and optimization_tools
 except ImportError as e:
     print(f"Warning: Could not import optimisation_tools: {e}")
     OPTIMIZATION_AVAILABLE = False
@@ -411,15 +420,14 @@ def make_widgets(config):
         value=config["plant_lifetime"],
         step=1,
     )
-    widgets["power_method"] = Select(
-        title="Power Method", value=config["power_method"], options=["MFE", "IFE", "PWR"]
+    widgets["reactor_type"] = Select(
+        title="Reactor Type",
+        value=config.get("reactor_type", "MFE Tokamak"),
+        options=["MFE Tokamak", "IFE Laser"]
     )
-    widgets["net_electric_power_mw"] = Slider(
-        title="Net Electric Power (MW)",
-        start=10,
-        end=4000,
-        value=config["net_electric_power_mw"],
-        step=10,
+    widgets["net_electric_power_mw"] = Div(
+        text="<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Net Electric Output (MW):</b> <span style='color:#4CAF50;'>Calculating...</span></div>",
+        width=300,
     )
     widgets["capacity_factor"] = Slider(
         title="Capacity Factor",
@@ -430,13 +438,55 @@ def make_widgets(config):
         format="0%",
     )
     widgets["fuel_type"] = Select(
-        title="Fuel Type", value=config["fuel_type"], options=[
-            "Lithium-Solid", 
-            "Lithium-Liquid", 
-            "Tritium",
-            "Fission Benchmark Enriched Uranium"
+        title="Fuel Type",
+        value=config.get("fuel_type", "DT (Deuterium-Tritium)"),
+        options=[
+            "DT (Deuterium-Tritium)",
+            "DD (Deuterium-Deuterium)",
+            "DHe3 (Deuterium-Helium-3)",
+            "pB11 (Proton-Boron-11)"
         ]
     )
+    
+    # NOAK/FOAK Selection
+    widgets["noak"] = RadioButtonGroup(
+        labels=["NOAK (Nth-of-a-kind)", "FOAK (First-of-a-kind)"],
+        active=0 if config.get("noak", True) else 1,
+        width=310
+    )
+    
+    # Power Balance Parameters
+    widgets["fusion_power_mw"] = Slider(
+        title="Fusion Power Output (MW)",
+        start=100,
+        end=3000,
+        value=config.get("fusion_power_mw", 500),
+        step=10,
+    )
+    widgets["q_plasma"] = Slider(
+        title="Plasma Q (Fusion Gain)",
+        start=0.001,
+        end=50,
+        value=config.get("q_plasma", 10),
+        step=0.001,
+    )
+    widgets["derived_heating_power"] = Div(
+        text="<div style='color:#aaa; font-size:13px; margin:2px 0;'>Derived Heating Power: 50.0 MW</div>",
+        width=300,
+    )
+    widgets["thermal_efficiency"] = Slider(
+        title="Thermal-to-Electric Efficiency",
+        start=0.35,
+        end=0.55,
+        value=config.get("thermal_efficiency", 0.46),
+        step=0.01,
+        format="0.0%",
+    )
+    widgets["power_balance_info"] = Div(
+        text="<div style='color:#ffffff; font-size:14px; margin:10px 0; padding:8px; background:#004d73; border-radius:8px;'><b>Power Balance:</b> P_heating = P_fusion / Q<br>Q_eng = P_net / P_recirculating</div>",
+        width=300,
+    )
+    
     widgets["input_debt_pct"] = Slider(
         title="Debt %", start=0.0, end=1.0, value=config["input_debt_pct"], step=0.01, format="0%"
     )
@@ -473,41 +523,170 @@ def make_widgets(config):
         value=config["grace_period_years"],
         step=1,
     )
-    # EPC Cost Control Toggle
-    widgets["override_epc"] = Checkbox(
-        label="Manual EPC Cost Override", active=config.get("override_epc", False)
+    
+    # ===== MATERIAL SELECTION SECTION =====
+    widgets["materials_header"] = Div(
+        text="<div style='font-size:16px; font-weight:bold; margin-top:20px; margin-bottom:10px; color:#ffffff;'>Material Selection</div>",
+        width=320,
     )
-    widgets["total_epc_cost"] = Slider(
-        title="Total EPC Cost ($)",
-        start=1e9,
-        end=5e10,
-        value=config["total_epc_cost"],
-        step=1e8,
-        format="0,0",
-        visible=config.get("override_epc", False),  # Initially hidden unless override is active
+    widgets["first_wall_material"] = Select(
+        title="First Wall Material",
+        value=config.get("first_wall_material", "Tungsten"),
+        options=["Tungsten", "Beryllium", "Liquid Lithium", "FLiBe"]
     )
-    # Q Engineering Control Toggle
-    widgets["override_q_eng"] = Checkbox(
-        label="Manual Q Engineering Override", active=config.get("override_q_eng", False)
+    widgets["blanket_type"] = Select(
+        title="Blanket Type",
+        value=config.get("blanket_type", "Solid Breeder (Li2TiO3)"),
+        options=[
+            "Solid Breeder (Li2TiO3)",
+            "Solid Breeder (Li4SiO4)",
+            "Flowing Liquid Breeder (PbLi)",
+            "No Breeder (Aneutronic)"
+        ]
+    )
+    widgets["structure_material"] = Select(
+        title="Structure Material",
+        value=config.get("structure_material", "Ferritic Steel (FMS)"),
+        options=[
+            "Stainless Steel (SS)",
+            "Ferritic Steel (FMS)",
+            "ODS Steel",
+            "Vanadium"
+        ]
+    )
+    widgets["material_cost_preview"] = Div(
+        text="<div style='color:#aaa; font-size:12px; margin:5px 0;'>Material costs will be calculated...</div>",
+        width=320,
+    )
+    
+    # ===== MAGNET SECTION (MFE ONLY) =====
+    widgets["magnet_header"] = Div(
+        text="<div style='font-size:16px; font-weight:bold; margin-top:20px; margin-bottom:10px; color:#ffffff;'>Magnet System (MFE Only)</div>",
+        width=320,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    widgets["magnet_technology"] = Select(
+        title="Magnet Technology",
+        value=config.get("magnet_technology", "HTS REBCO"),
+        options=[
+            "HTS REBCO",
+            "HTS Cable-in-Conduit",
+            "LTS NbTi",
+            "LTS Nb3Sn",
+            "Copper (resistive)"
+        ],
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    widgets["toroidal_field_tesla"] = Slider(
+        title="Peak Toroidal Field (Tesla)",
+        start=5,
+        end=20,
+        value=config.get("toroidal_field_tesla", 12),
+        step=0.5,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    widgets["n_tf_coils"] = Slider(
+        title="Number of TF Coils",
+        start=8,
+        end=24,
+        value=config.get("n_tf_coils", 12),
+        step=2,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    widgets["tape_width_m"] = Slider(
+        title="HTS Tape Width (mm)",
+        start=3,
+        end=12,
+        value=config.get("tape_width_m", 4),
+        step=0.5,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and "HTS" in config.get("magnet_technology", "HTS REBCO")
+    )
+    widgets["coil_thickness_m"] = Slider(
+        title="Coil Radial Thickness (m)",
+        start=0.15,
+        end=0.5,
+        value=config.get("coil_thickness_m", 0.25),
+        step=0.05,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    widgets["magnet_cost_preview"] = Div(
+        text="<div style='color:#aaa; font-size:12px; margin:5px 0;'>Magnet costs will be calculated...</div>",
+        width=320,
+        visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak"
+    )
+    
+    # ===== IFE SECTION (IFE ONLY) =====
+    widgets["ife_header"] = Div(
+        text="<div style='font-size:16px; font-weight:bold; margin-top:20px; margin-bottom:10px; color:#ffffff;'>IFE Driver System</div>",
+        width=320,
+        visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak"
+    )
+    widgets["chamber_radius_m"] = Slider(
+        title="Chamber Radius (m)",
+        start=5,
+        end=15,
+        value=config.get("chamber_radius_m", 8),
+        step=0.5,
+        visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak"
+    )
+    widgets["driver_energy_mj"] = Slider(
+        title="Driver Energy per Shot (MJ)",
+        start=1,
+        end=10,
+        value=config.get("driver_energy_mj", 2),
+        step=0.1,
+        visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak"
+    )
+    widgets["repetition_rate_hz"] = Slider(
+        title="Target Repetition Rate (Hz)",
+        start=1,
+        end=20,
+        value=config.get("repetition_rate_hz", 10),
+        step=1,
+        visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak"
+    )
+    widgets["target_gain"] = Slider(
+        title="Target Gain",
+        start=10,
+        end=100,
+        value=config.get("target_gain", 50),
+        step=5,
+        visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak"
+    )
+    
+    # EPC Cost Control Toggle - REMOVED (now always calculated)
+    # widgets["override_epc"] = Checkbox(
+    #     label="Manual EPC Cost Override", active=config.get("override_epc", False)
+    # )
+    # Total EPC Cost Slider - REMOVED (now always calculated from physics)
+    # widgets["total_epc_cost"] = Slider(...)
+    
+    # ===== Q ENGINEERING SECTION (Updated to Calculated/Manual mode) =====
+    widgets["q_eng_mode"] = Select(
+        title="Q Engineering Mode",
+        value=config.get("q_eng_mode", "Calculated (from physics)"),
+        options=["Calculated (from physics)", "Manual Override"]
+    )
+    widgets["calculated_q_eng_display"] = Div(
+        text="<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Calculated Q_eng:</b> <span style='color:#4CAF50;'>Calculating...</span></div>",
+        width=400,
     )
     widgets["manual_q_eng"] = Slider(
-        title="Q Engineering Value",
+        title="Manual Q Engineering Value",
         start=1.0,
         end=15.0,
         value=config.get("manual_q_eng", 4.0),
         step=0.1,
-        visible=config.get("override_q_eng", False),  # Initially hidden unless override is active
+        visible=config.get("q_eng_mode", "Calculated (from physics)") == "Manual Override"
     )
     
     # Display widgets for auto-calculated values (read-only)
     widgets["auto_epc_display"] = Div(
-        text="<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Auto EPC Cost:</b> Calculating...</div>",
+        text="<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Total EPC Cost:</b> Calculating...</div>",
         width=400,
     )
-    widgets["auto_q_eng_display"] = Div(
-        text="<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Auto Q Engineering:</b> Calculating...</div>",
-        width=400,
-    )
+    # Removed auto_q_eng_display - replaced by calculated_q_eng_display above
+    
     widgets["extra_capex_pct"] = Slider(
         title="Extra CapEx %",
         start=0.0,
@@ -516,21 +695,25 @@ def make_widgets(config):
         step=0.01,
         format="0%",
     )
+    # NOTE: Contingency sliders removed - contingency is handled by CAS 29 in costing module
+    # Keeping hidden widgets so get_config_from_widgets doesn't break
     widgets["project_contingency_pct"] = Slider(
-        title="Project Contingency %",
+        title="Project Contingency % (CAS 29)",
         start=0.0,
         end=0.5,
-        value=config["project_contingency_pct"],
+        value=0.0,
         step=0.01,
         format="0%",
+        visible=False,
     )
     widgets["process_contingency_pct"] = Slider(
-        title="Process Contingency %",
+        title="Process Contingency % (CAS 29)",
         start=0.0,
         end=0.5,
-        value=config["process_contingency_pct"],
+        value=0.0,
         step=0.01,
         format="0%",
+        visible=False,
     )
     widgets["fixed_om_per_mw"] = Slider(
         title="Fixed O&M per MW ($)",
@@ -629,11 +812,46 @@ def get_config_from_widgets(widgets):
             config[k] = w.value
         elif isinstance(w, Checkbox):
             config[k] = w.active
-    # Force manual EPC when benchmarking PWR, but allow user to adjust the amount
-    if config.get("power_method") == "PWR":
-        config["override_epc"] = True
-        # Use the widget value for total_epc_cost (don't hardcode it)
-        # This allows users to adjust PWR EPC cost via the slider
+        elif isinstance(w, RadioButtonGroup):
+            # Handle RadioButtonGroup (e.g., noak: 0=True, 1=False)
+            if k == "noak":
+                config[k] = (w.active == 0)  # 0 index = NOAK (True), 1 index = FOAK (False)
+            else:
+                config[k] = w.active
+    
+    # Map UI values to costing module enum codes
+    if "fuel_type" in config:
+        fuel_map = {
+            "DT (Deuterium-Tritium)": "DT",
+            "DD (Deuterium-Deuterium)": "DD",
+            "DHe3 (Deuterium-Helium-3)": "DHE3",
+            "pB11 (Proton-Boron-11)": "PB11"
+        }
+        config["fuel_type_code"] = fuel_map.get(config["fuel_type"], "DT")
+    
+    # Map reactor_type to MFE/IFE codes
+    if "reactor_type" in config:
+        reactor_map = {
+            "MFE Tokamak": "MFE",
+            "IFE Laser": "IFE"
+        }
+        config["reactor_type_code"] = reactor_map.get(config["reactor_type"], "MFE")
+        
+        # Set power_method using same canonical codes as reactor_type_code
+        config["power_method"] = reactor_map.get(config["reactor_type"], "MFE")
+    
+    # Derive auxiliary_power_mw from fusion_power / q_plasma
+    fusion_mw = config.get("fusion_power_mw", 500)
+    q_plasma = config.get("q_plasma", 10)
+    if q_plasma > 0:
+        config["auxiliary_power_mw"] = fusion_mw / q_plasma
+    else:
+        config["auxiliary_power_mw"] = 50  # safety fallback
+    
+    # Convert tape_width from mm to m if present
+    if "tape_width_m" in config:
+        config["tape_width_m_actual"] = config["tape_width_m"] / 1000.0  # mm to m
+    
     return config
 
 
@@ -646,54 +864,98 @@ DEBOUNCE_DELAY = 0.8  # seconds
 def update_dashboard():
     config = get_config_from_widgets(widgets)
     
-    # Skip fusion auto-calcs when benchmarking a fixed PWR plant
-    tech = config["power_method"]
-    if tech == "PWR":
-        widgets["auto_q_eng_display"].text = (
-            "<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
-            "<b>Auto Q Engineering:</b> N/A (fixed benchmark)</div>")
-        # Show the actual EPC cost from the slider for PWR
-        actual_epc_cost = config["total_epc_cost"]
+    # Calculate values using new costing system
+    try:
+        from fusion_cashflow.core.power_to_epc import compute_epc
+        from fusion_cashflow.costing import compute_total_epc_cost
+        
+        # Get costing results
+        epc_result = compute_epc(config)
+        
+        # Feed costing P_net back into config for cashflow engine
+        p_net_from_costing = epc_result.get("power_balance", {}).get("p_net", 400)
+        config["net_electric_power_mw"] = p_net_from_costing
+        
+        # Update Net Electric Output display
+        p_net_color = "#4CAF50" if p_net_from_costing > 100 else "#FF5252"
+        widgets["net_electric_power_mw"].text = (
+            f"<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+            f"<b>Net Electric Output (MW):</b> <span style='color:{p_net_color};'>{p_net_from_costing:.0f}</span></div>")
+        
+        # Update Q_eng display
+        q_eng_value = epc_result.get("power_balance", {}).get("q_eng", 0)
+        q_color = "#4CAF50" if q_eng_value > 1.5 else ("#FFC107" if q_eng_value > 1.0 else "#FF5252")
+        widgets["calculated_q_eng_display"].text = (
+            f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+            f"<b>Calculated Q_eng:</b> <span style='color:{q_color};'>{q_eng_value:.2f}</span></div>")
+        
+        # Update EPC display
+        auto_epc_cost = epc_result.get("total_epc", 0)
+        auto_epc_per_kw = epc_result.get("epc_per_kw", 0)
         widgets["auto_epc_display"].text = (
-            "<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
-            f"<b>Auto EPC Cost:</b> ${actual_epc_cost/1e9:.1f} B (manual override)</div>")
-    else:
-        # Calculate auto-generated values for display
-        try:
-            from fusion_cashflow.core.power_to_epc import arpa_epc, get_regional_factor
-            from fusion_cashflow.core.q_model import estimate_q_eng
+            f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+            f"<b>Total EPC Cost:</b> ${auto_epc_cost/1e9:.2f} B "
+            f"(${auto_epc_per_kw:,} / kW)</div>")
+        
+        # Update derived heating power display
+        p_heating_derived = config.get("auxiliary_power_mw", 50)
+        widgets["derived_heating_power"].text = (
+            f"<div style='color:#aaa; font-size:13px; margin:2px 0;'>Derived Heating Power: {p_heating_derived:.1f} MW</div>")
+        
+        # Update material cost preview
+        # Sum of firstwall + blanket + structure + shield from detailed result
+        detailed = epc_result.get("detailed_result", {})
+        cas22_details = detailed.get("CAS 22 - Reactor Equipment", {})
+        material_cost = (
+            cas22_details.get("First Wall", 0) +
+            cas22_details.get("Blanket", 0) +
+            cas22_details.get("Shield", 0)
+        )
+        widgets["material_cost_preview"].text = (
+            f"<div style='color:#aaa; font-size:12px; margin:5px 0;'>Estimated material cost: ${material_cost/1e6:.1f}M</div>")
+        
+        # Update magnet cost preview (MFE only)
+        if config.get("reactor_type") == "MFE Tokamak":
+            detailed = epc_result.get("detailed_result", {})
+            cas22 = detailed.get("CAS 22 - Reactor Equipment", {})
+            magnet_cost = cas22.get("Magnets", 0)
+            widgets["magnet_cost_preview"].text = (
+                f"<div style='color:#aaa; font-size:12px; margin:5px 0;'>Estimated magnet cost: ${magnet_cost/1e6:.1f}M</div>")
+        
+        # Update expert geometry displays
+        if config.get("use_expert_geometry"):
+            if config.get("reactor_type") == "MFE Tokamak":
+                total_r = (config.get("expert_major_radius_m", 3) + 
+                          config.get("expert_plasma_t", 1.1) +
+                          config.get("expert_vacuum_t", 0.1) +
+                          config.get("expert_firstwall_t", 0.02) +
+                          config.get("expert_blanket_t", 0.8) +
+                          config.get("expert_reflector_t", 0.2) +
+                          config.get("expert_ht_shield_t", 0.2) +
+                          config.get("expert_structure_t", 0.2) +
+                          config.get("expert_gap_t", 0.5) +
+                          config.get("expert_vessel_t", 0.2) +
+                          config.get("expert_gap2_t", 0.5) +
+                          config.get("expert_lt_shield_t", 0.3) +
+                          config.get("expert_coil_t", 1.0) +
+                          config.get("expert_bio_shield_t", 1.0))
+                widgets["total_radius_display"].text = (
+                    f"<div style='margin:10px 0; font-weight:bold;'>Total Machine Radius: {total_r:.2f} m</div>")
+            else:  # IFE
+                outer_r = (config.get("expert_chamber_radius_m", 8) +
+                          config.get("expert_firstwall_t_ife", 0.005) +
+                          config.get("expert_blanket_t_ife", 0.5) +
+                          config.get("expert_reflector_t_ife", 0.1) +
+                          config.get("expert_structure_t_ife", 0.2) +
+                          config.get("expert_vessel_t_ife", 0.2))
+                widgets["outer_radius_display"].text = (
+                    f"<div style='margin:10px 0; font-weight:bold;'>Outer Vessel Radius: {outer_r:.2f} m</div>")
             
-            net_mw = config["net_electric_power_mw"]
-            location = config["project_location"]
-            years_construction = (
-                config["project_energy_start_year"] - config["construction_start_year"]
-            )
-            
-            # Auto Q (fusion only)
-            auto_q_eng = estimate_q_eng(net_mw, tech)
-            widgets["auto_q_eng_display"].text = (
-                f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
-                f"<b>Auto Q Engineering:</b> {auto_q_eng:.2f}</div>")
-            
-            # Auto EPC (fusion only)
-            region_factor = get_regional_factor(location)
-            epc_result = arpa_epc(
-                net_mw=net_mw,
-                years=years_construction,
-                tech=tech,
-                region_factor=region_factor,
-                noak=True,
-            )
-            auto_epc_cost   = epc_result["total_epc_cost"]
-            auto_epc_per_kw = epc_result["cost_per_kw"]
-            widgets["auto_epc_display"].text = (
-                f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
-                f"<b>Auto EPC Cost:</b> ${auto_epc_cost/1e9:.2f} B "
-                f"(${auto_epc_per_kw:,} / kW)</div>")
-                
-        except Exception as e:
-            widgets["auto_q_eng_display"].text = f"<div style='margin-bottom:10px; color:#ff6b6b; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Auto Q Engineering:</b> Error: {str(e)[:50]}...</div>"
-            widgets["auto_epc_display"].text = f"<div style='margin-bottom:10px; color:#ff6b6b; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Auto EPC Cost:</b> Error: {str(e)[:50]}...</div>"
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        widgets["calculated_q_eng_display"].text = f"<div style='margin-bottom:10px; color:#ff6b6b; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Calculated Q_eng:</b> Error: {str(e)[:50]}...</div>"
+        widgets["auto_epc_display"].text = f"<div style='margin-bottom:10px; color:#ff6b6b; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Total EPC Cost:</b> Error: {str(e)[:50]}...</div>"
     
     outputs = run_cashflow_scenario(config)
     highlight_div.text = render_highlight_facts(outputs)
@@ -730,7 +992,12 @@ def update_dashboard():
     # Update costing panel if EPC breakdown is available
     epc_breakdown = outputs.get("epc_breakdown", {})
     if epc_breakdown:
-        updated_costing_panel = create_costing_panel(epc_breakdown)
+        # Store region factor in config for driver analysis
+        if not config.get('_region_factor'):
+            from fusion_cashflow.core.power_to_epc import get_regional_factor
+            config['_region_factor'] = get_regional_factor(config['project_location'])
+        
+        updated_costing_panel = create_costing_panel(epc_breakdown, config)
         costing_col.children = [updated_costing_panel]
     
     # Replace plots in layout (main tab only)
@@ -785,6 +1052,28 @@ def download_csv_callback(source, filename):
 
 # --- Initial setup ---
 config = get_default_config()
+# Add new UI parameters to config
+config["reactor_type"] = "MFE Tokamak"
+config["power_method"] = "MFE"  # Canonical code: MFE, IFE, PWR
+config["fuel_type"] = "DT (Deuterium-Tritium)"
+config["noak"] = True
+config["fusion_power_mw"] = 500
+config["q_plasma"] = 10
+config["auxiliary_power_mw"] = 50  # Derived from fusion_power / q_plasma
+config["thermal_efficiency"] = 0.46
+config["first_wall_material"] = "Tungsten"
+config["blanket_type"] = "Solid Breeder (Li2TiO3)"
+config["structure_material"] = "Ferritic Steel (FMS)"
+config["magnet_technology"] = "HTS REBCO"
+config["toroidal_field_tesla"] = 12
+config["n_tf_coils"] = 12
+config["tape_width_m"] = 4  # mm
+config["coil_thickness_m"] = 0.25
+config["chamber_radius_m"] = 8
+config["driver_energy_mj"] = 2
+config["q_eng_mode"] = "Calculated (from physics)"
+config["use_expert_geometry"] = False
+# No need for override_epc or total_epc_cost - always use embedded costing now
 widgets = make_widgets(config)
 
 # --- Make years_construction_display reactive ---
@@ -797,81 +1086,132 @@ widgets["construction_start_year"].on_change("value", update_years_construction_
 widgets["project_energy_start_year"].on_change("value", update_years_construction_display)
 
 # --- Make power method and fuel type reactive ---
-def update_fuel_type_based_on_power_method(attr, old, new):
-    power_method = widgets["power_method"].value
-    if power_method == "PWR":
-        # For PWR, force fission fuel
-        widgets["fuel_type"].value = "Fission Benchmark Enriched Uranium"
-        widgets["fuel_type"].options = ["Fission Benchmark Enriched Uranium"]
-    elif power_method in ["MFE", "IFE"]:
-        # For fusion methods, provide fusion fuel options
-        widgets["fuel_type"].options = ["Lithium-Solid", "Lithium-Liquid", "Tritium"]
-        if widgets["fuel_type"].value == "Fission Benchmark Enriched Uranium":
-            widgets["fuel_type"].value = "Lithium-Solid"
-    else:
-        # Default case - all options available
-        widgets["fuel_type"].options = [
-            "Lithium-Solid", 
-            "Lithium-Liquid", 
-            "Tritium", 
-            "Fission Benchmark Enriched Uranium"
-        ]
+def update_fuel_type_based_on_reactor_type(attr, old, new):
+    """Update fuel type options based on reactor type selection."""
+    reactor_type = widgets["reactor_type"].value
+    # No longer restrict fuel types - all fusion reactors can use any fuel
+    # This function kept for potential future fuel type validation
+    pass
 
-def update_config_based_on_power_method(attr, old, new):
-    """Update all configuration parameters when power method changes."""
-    from fusion_cashflow.core.cashflow_engine import get_default_config_by_power_method
-    
-    power_method = widgets["power_method"].value
-    new_config = get_default_config_by_power_method(power_method)
-    
-    # Update all widgets with new configuration values
-    # Skip power_method itself to avoid recursion
-    for key, value in new_config.items():
-        if key in widgets and key != "power_method":
-            widget = widgets[key]
-            if isinstance(widget, (Slider, TextInput, Select)):
-                # For sliders, make sure the value is within range
-                if isinstance(widget, Slider):
-                    if value < widget.start:
-                        widget.start = value
-                    if value > widget.end:
-                        widget.end = value
-                widget.value = value
-            elif isinstance(widget, Checkbox):
-                widget.active = value
-    
-    # Special handling for PWR: force manual EPC override and make slider visible
-    if power_method == "PWR":
-        widgets["override_epc"].active = True
-        widgets["total_epc_cost"].visible = True
-    else:
-        # For fusion methods, respect the config's override_epc setting
-        widgets["total_epc_cost"].visible = widgets["override_epc"].active
-    
-    # Update years construction display
-    years = widgets["project_energy_start_year"].value - widgets["construction_start_year"].value
-    widgets["years_construction_display"].text = (
-        f"<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'><b>Construction Duration (years):</b> {years}</div>"
-    )
-    
-    # Update fuel type options based on new power method
-    update_fuel_type_based_on_power_method(attr, old, new)
+def update_config_based_on_reactor_type(attr, old, new):
+    """Update all configuration parameters when reactor type changes."""
+    # Reactor type changes are now handled by toggle_reactor_type_visibility()
+    # This function kept for potential future configuration updates
+    pass
 
-widgets["power_method"].on_change("value", update_fuel_type_based_on_power_method)
-widgets["power_method"].on_change("value", update_config_based_on_power_method)
+# Attach reactor_type callbacks (in addition to visibility callbacks below)
+# Note: These are mostly placeholders now; main logic is in toggle_reactor_type_visibility()
+widgets["reactor_type"].on_change("value", update_fuel_type_based_on_reactor_type)
+widgets["reactor_type"].on_change("value", update_config_based_on_reactor_type)
 
 # --- EPC and Q Engineering Visibility Toggle Functions ---
 def toggle_epc_slider_visibility(attr, old, new):
     """Show/hide the manual EPC cost slider based on override checkbox."""
-    widgets["total_epc_cost"].visible = new
+    # Note: EPC override removed, this function kept for compatibility
+    pass
 
 def toggle_q_eng_slider_visibility(attr, old, new):
-    """Show/hide the manual Q Engineering slider based on override checkbox."""
-    widgets["manual_q_eng"].visible = new
+    """Show/hide the manual Q Engineering slider based on q_eng_mode."""
+    if new == "Manual Override":
+        widgets["manual_q_eng"].visible = True
+        widgets["calculated_q_eng_display"].visible = False
+    else:
+        widgets["manual_q_eng"].visible = False
+        widgets["calculated_q_eng_display"].visible = True
+
+def toggle_reactor_type_visibility(attr, old, new):
+    """Show/hide sections based on reactor type (MFE vs IFE)."""
+    is_mfe = (new == "MFE Tokamak")
+    is_ife = (new == "IFE Laser")
+    
+    # Magnet section (MFE only)
+    widgets["magnet_header"].visible = is_mfe
+    widgets["magnet_technology"].visible = is_mfe
+    widgets["toroidal_field_tesla"].visible = is_mfe
+    widgets["n_tf_coils"].visible = is_mfe
+    widgets["tape_width_m"].visible = is_mfe and "HTS" in widgets["magnet_technology"].value
+    widgets["coil_thickness_m"].visible = is_mfe
+    widgets["magnet_cost_preview"].visible = is_mfe
+    
+    # IFE section (IFE only)
+    widgets["ife_header"].visible = is_ife
+    widgets["chamber_radius_m"].visible = is_ife
+    widgets["driver_energy_mj"].visible = is_ife
+    widgets["repetition_rate_hz"].visible = is_ife
+    widgets["target_gain"].visible = is_ife
+    
+    # Expert geometry sections
+    use_expert = widgets["use_expert_geometry"].active
+    widgets["mfe_geometry_header"].visible = is_mfe and use_expert
+    widgets["expert_major_radius_m"].visible = is_mfe and use_expert
+    widgets["expert_plasma_t"].visible = is_mfe and use_expert
+    widgets["expert_elongation"].visible = is_mfe and use_expert
+    widgets["expert_vacuum_t"].visible = is_mfe and use_expert
+    widgets["expert_firstwall_t"].visible = is_mfe and use_expert
+    widgets["expert_blanket_t"].visible = is_mfe and use_expert
+    widgets["expert_reflector_t"].visible = is_mfe and use_expert
+    widgets["expert_ht_shield_t"].visible = is_mfe and use_expert
+    widgets["expert_structure_t"].visible = is_mfe and use_expert
+    widgets["expert_gap_t"].visible = is_mfe and use_expert
+    widgets["expert_vessel_t"].visible = is_mfe and use_expert
+    widgets["expert_gap2_t"].visible = is_mfe and use_expert
+    widgets["expert_lt_shield_t"].visible = is_mfe and use_expert
+    widgets["expert_coil_t"].visible = is_mfe and use_expert
+    widgets["expert_bio_shield_t"].visible = is_mfe and use_expert
+    widgets["total_radius_display"].visible = is_mfe and use_expert
+    
+    widgets["ife_geometry_header"].visible = is_ife and use_expert
+    widgets["expert_chamber_radius_m"].visible = is_ife and use_expert
+    widgets["expert_firstwall_t_ife"].visible = is_ife and use_expert
+    widgets["expert_blanket_t_ife"].visible = is_ife and use_expert
+    widgets["expert_reflector_t_ife"].visible = is_ife and use_expert
+    widgets["expert_structure_t_ife"].visible = is_ife and use_expert
+    widgets["expert_vessel_t_ife"].visible = is_ife and use_expert
+    widgets["outer_radius_display"].visible = is_ife and use_expert
+
+def toggle_magnet_technology_visibility(attr, old, new):
+    """Show/hide HTS tape width based on magnet technology."""
+    widgets["tape_width_m"].visible = "HTS" in new and widgets["reactor_type"].value == "MFE Tokamak"
+
+def toggle_expert_geometry_visibility(attr, old, new):
+    """Enable/disable expert geometry sliders based on checkbox."""
+    is_mfe = widgets["reactor_type"].value == "MFE Tokamak"
+    is_ife = widgets["reactor_type"].value == "IFE Laser"
+    
+    # MFE geometry
+    widgets["mfe_geometry_header"].visible = is_mfe and new
+    widgets["expert_major_radius_m"].visible = is_mfe and new
+    widgets["expert_plasma_t"].visible = is_mfe and new
+    widgets["expert_elongation"].visible = is_mfe and new
+    widgets["expert_vacuum_t"].visible = is_mfe and new
+    widgets["expert_firstwall_t"].visible = is_mfe and new
+    widgets["expert_blanket_t"].visible = is_mfe and new
+    widgets["expert_reflector_t"].visible = is_mfe and new
+    widgets["expert_ht_shield_t"].visible = is_mfe and new
+    widgets["expert_structure_t"].visible = is_mfe and new
+    widgets["expert_gap_t"].visible = is_mfe and new
+    widgets["expert_vessel_t"].visible = is_mfe and new
+    widgets["expert_gap2_t"].visible = is_mfe and new
+    widgets["expert_lt_shield_t"].visible = is_mfe and new
+    widgets["expert_coil_t"].visible = is_mfe and new
+    widgets["expert_bio_shield_t"].visible = is_mfe and new
+    widgets["total_radius_display"].visible = is_mfe and new
+    
+    # IFE geometry
+    widgets["ife_geometry_header"].visible = is_ife and new
+    widgets["expert_chamber_radius_m"].visible = is_ife and new
+    widgets["expert_firstwall_t_ife"].visible = is_ife and new
+    widgets["expert_blanket_t_ife"].visible = is_ife and new
+    widgets["expert_reflector_t_ife"].visible = is_ife and new
+    widgets["expert_structure_t_ife"].visible = is_ife and new
+    widgets["expert_vessel_t_ife"].visible = is_ife and new
+    widgets["outer_radius_display"].visible = is_ife and new
 
 # Set up visibility toggle callbacks
-widgets["override_epc"].on_change("active", toggle_epc_slider_visibility)
-widgets["override_q_eng"].on_change("active", toggle_q_eng_slider_visibility)
+# widgets["override_epc"].on_change("active", toggle_epc_slider_visibility)  # Removed
+widgets["q_eng_mode"].on_change("value", toggle_q_eng_slider_visibility)
+widgets["reactor_type"].on_change("value", toggle_reactor_type_visibility)
+widgets["magnet_technology"].on_change("value", toggle_magnet_technology_visibility)
 
 outputs = run_cashflow_scenario(config)
 
@@ -937,11 +1277,11 @@ funding_df = pd.DataFrame(
             sum(outputs["debt_drawdown_vec"][: outputs["years_construction"]]),
             outputs["toc"]
             - sum(outputs["debt_drawdown_vec"][: outputs["years_construction"]]),
-            config["total_epc_cost"],
-            config["total_epc_cost"] * config["extra_capex_pct"],
-            config["total_epc_cost"] * config["project_contingency_pct"],
-            config["total_epc_cost"] * config["process_contingency_pct"],
-            config["total_epc_cost"] * config["financing_fee"],
+            outputs.get("total_epc_cost", 5_000_000_000),  # Get from outputs
+            outputs.get("total_epc_cost", 5_000_000_000) * config["extra_capex_pct"],
+            outputs.get("total_epc_cost", 5_000_000_000) * config["project_contingency_pct"],
+            outputs.get("total_epc_cost", 5_000_000_000) * config["process_contingency_pct"],
+            outputs.get("total_epc_cost", 5_000_000_000) * config["financing_fee"],
         ],
     }
 )
@@ -1161,21 +1501,51 @@ sidebar = column(
     widgets["plant_lifetime"],
     
     # Power and technology
-    widgets["power_method"],
+    widgets["reactor_type"],
     widgets["net_electric_power_mw"],
     widgets["capacity_factor"],
     widgets["fuel_type"],
+    widgets["noak"],
+    
+    # Power Balance Parameters
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Power Balance</h3>"),
+    widgets["fusion_power_mw"],
+    widgets["q_plasma"],
+    widgets["derived_heating_power"],
+    widgets["thermal_efficiency"],
+    widgets["power_balance_info"],
+    
+    # Material Selection
+    widgets["materials_header"],
+    widgets["first_wall_material"],
+    widgets["blanket_type"],
+    widgets["structure_material"],
+    widgets["material_cost_preview"],
+    
+    # Magnet System (MFE Only)
+    widgets["magnet_header"],
+    widgets["magnet_technology"],
+    widgets["toroidal_field_tesla"],
+    widgets["n_tf_coils"],
+    widgets["tape_width_m"],
+    widgets["coil_thickness_m"],
+    widgets["magnet_cost_preview"],
+    
+    # IFE Driver System
+    widgets["ife_header"],
+    widgets["chamber_radius_m"],
+    widgets["driver_energy_mj"],
+    widgets["repetition_rate_hz"],
+    widgets["target_gain"],
     
     # EPC Cost Integration
     Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Engineering, Procurement & Construction - The total cost to design, procure equipment, and build the power plant' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">EPC Cost Integration<sup>?</sup></span></h3>"),
     widgets["auto_epc_display"],
-    widgets["override_epc"],
-    widgets["total_epc_cost"],
     
     # Q Engineering Integration
     Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Q Engineering - The energy amplification factor (fusion power out / heating power in). Higher Q means more efficient fusion reactions' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">Q Engineering Integration<sup>?</sup></span></h3>"),
-    widgets["auto_q_eng_display"],
-    widgets["override_q_eng"],
+    widgets["q_eng_mode"],
+    widgets["calculated_q_eng_display"],
     widgets["manual_q_eng"],
     
     # Financial parameters
@@ -1272,7 +1642,7 @@ grey_container_style = {
 }
 # Create a container for the plot
 sens_fig = placeholder_fig
-sens_plot_container = column(sens_fig, styles=grey_container_style)
+sens_plot_container = column(sens_fig, sizing_mode="stretch_width", styles=grey_container_style)
 sens_col = column(
     Div(
         text="<h3 style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Sensitivity Analysis</h3><p style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif;'>Click the button to recompute sensitivity analysis with current inputs.</p>"
@@ -1295,8 +1665,13 @@ sens_tab = TabPanel(child=sens_col, title="Sensitivity Analysis")
 # Create initial costing panel with current outputs
 epc_breakdown = outputs.get("epc_breakdown", {})
 if epc_breakdown:
-    # Create costing panel with full EPC results
-    costing_panel = create_costing_panel(epc_breakdown)
+    # Store region factor in config for driver analysis
+    if not config.get('_region_factor'):
+        from fusion_cashflow.core.power_to_epc import get_regional_factor
+        config['_region_factor'] = get_regional_factor(config['project_location'])
+    
+    # Create costing panel with full EPC results and config
+    costing_panel = create_costing_panel(epc_breakdown, config)
 else:
     # Show placeholder if no EPC breakdown available
     costing_panel = column(
@@ -1313,7 +1688,7 @@ else:
         )
     )
 
-costing_col = column(costing_panel)
+costing_col = column(costing_panel, styles={'background': '#001e3c', 'border-radius': '16px', 'padding': '12px'})
 costing_tab = TabPanel(child=costing_col, title="Cost Breakdown")
 
 
@@ -1656,6 +2031,143 @@ if sens_button:
 # --- Optimization Button Callback ---
 widgets["optimise_button"].on_click(run_optimiser)
 
+# --- Expert Config Tab Creation ---
+# Create expert geometry widgets
+widgets["expert_header"] = Div(
+    text="<h3 style='margin-bottom:15px; color:#ffffff;'>Expert Configuration</h3><p style='color:#a0c4ff;'>Override template-based geometry with custom radial build. <b style=\"color:#ffffff;\">All parameters must be specified together</b> - partial overrides not supported.</p>",
+    styles={"background": "#00375b", "padding": "18px 24px", "border-radius": "16px", "color": "#ffffff", "font-family": "Inter, Helvetica, Arial, sans-serif"},
+)
+
+widgets["use_expert_geometry"] = Checkbox(
+    label="Enable Expert Geometry Override (unchecked = use template defaults)",
+    active=config.get("use_expert_geometry", False)
+)
+
+widgets["geometry_mode_info"] = Div(
+    text="<div style='color:#a0c4ff; font-size:12px; margin:10px 0;'>When disabled, geometry auto-scales from reactor type and power level using proven templates.</div>",
+)
+
+# MFE Radial Build Section
+widgets["mfe_geometry_header"] = Div(
+    text="<div style='font-size:16px; font-weight:bold; margin-top:20px; margin-bottom:10px; color:#ffffff;'>MFE Tokamak Radial Build</div>",
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False)
+)
+
+# MFE expert sliders (15 parameters)
+widgets["expert_major_radius_m"] = Slider(title="Major Radius R₀ (m)", start=2, end=10, value=config.get("expert_major_radius_m", 3), step=0.1, 
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_plasma_t"] = Slider(title="Plasma Thickness/Minor Radius (m)", start=0.5, end=3, value=config.get("expert_plasma_t", 1.1), step=0.1,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_elongation"] = Slider(title="Plasma Elongation κ", start=1.0, end=4.0, value=config.get("expert_elongation", 3.0), step=0.1,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_vacuum_t"] = Slider(title="Vacuum Gap Thickness (m)", start=0.05, end=0.5, value=config.get("expert_vacuum_t", 0.1), step=0.01,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_firstwall_t"] = Slider(title="First Wall Thickness (m)", start=0.005, end=0.05, value=config.get("expert_firstwall_t", 0.02), step=0.005,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_blanket_t"] = Slider(title="Blanket Thickness (m)", start=0.3, end=1.5, value=config.get("expert_blanket_t", 0.8), step=0.05,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_reflector_t"] = Slider(title="Reflector Thickness (m)", start=0.1, end=0.5, value=config.get("expert_reflector_t", 0.2), step=0.05,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_ht_shield_t"] = Slider(title="High-Temp Shield Thickness (m)", start=0.1, end=0.5, value=config.get("expert_ht_shield_t", 0.2), step=0.05,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_structure_t"] = Slider(title="Structure Thickness (m)", start=0.1, end=0.5, value=config.get("expert_structure_t", 0.2), step=0.05,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_gap_t"] = Slider(title="Maintenance Gap (m)", start=0.2, end=1.0, value=config.get("expert_gap_t", 0.5), step=0.05,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_vessel_t"] = Slider(title="Vacuum Vessel Thickness (m)", start=0.05, end=0.5, value=config.get("expert_vessel_t", 0.2), step=0.05,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_gap2_t"] = Slider(title="Secondary Gap (m)", start=0.2, end=1.0, value=config.get("expert_gap2_t", 0.5), step=0.05,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_lt_shield_t"] = Slider(title="Low-Temp Shield Thickness (m)", start=0.2, end=0.5, value=config.get("expert_lt_shield_t", 0.3), step=0.05,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_coil_t"] = Slider(title="TF Coil Thickness (m)", start=0.5, end=2.0, value=config.get("expert_coil_t", 1.0), step=0.1,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_bio_shield_t"] = Slider(title="Biological Shield Thickness (m)", start=0.5, end=2.0, value=config.get("expert_bio_shield_t", 1.0), step=0.1,
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
+
+# Calculate initial radius value
+initial_radius = (
+    config.get("expert_firstwall_t", 0.002) +
+    config.get("expert_blanket_t", 0.8) +
+    config.get("expert_shield_t", 0.6) +
+    config.get("expert_vv_t", 0.05) +
+    config.get("expert_gap_vv_tf", 0.1) +
+    config.get("expert_tf_coil_t", 0.6) +
+    config.get("expert_tf_case_t", 0.05) +
+    config.get("expert_dewar_t", 0.05) +
+    config.get("expert_bio_shield_t", 1.0)
+)
+widgets["total_radius_display"] = Div(
+    text=f"<div style='margin:10px 0; font-weight:bold; color:#ffffff;'>Total Machine Radius: {initial_radius:.3f} m</div>",
+    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False)
+)
+
+# IFE Geometry Section
+widgets["ife_geometry_header"] = Div(
+    text="<div style='font-size:16px; font-weight:bold; margin-top:20px; margin-bottom:10px; color:#ffffff;'>IFE Spherical Chamber Build</div>",
+    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False)
+)
+
+# IFE expert sliders (6 parameters)
+widgets["expert_chamber_radius_m"] = Slider(title="Inner Chamber Radius (m)", start=5, end=15, value=config.get("expert_chamber_radius_m", 8), step=0.5,
+    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_firstwall_t_ife"] = Slider(title="First Wall Thickness IFE (m)", start=0.002, end=0.01, value=config.get("expert_firstwall_t_ife", 0.005), step=0.001,
+    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_blanket_t_ife"] = Slider(title="Blanket Thickness (m)", start=0.3, end=1.0, value=config.get("expert_blanket_t_ife", 0.5), step=0.05,
+    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_reflector_t_ife"] = Slider(title="Reflector Thickness (m)", start=0.05, end=0.2, value=config.get("expert_reflector_t_ife", 0.1), step=0.01,
+    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_structure_t_ife"] = Slider(title="Structure Thickness (m)", start=0.1, end=0.3, value=config.get("expert_structure_t_ife", 0.2), step=0.05,
+    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["expert_vessel_t_ife"] = Slider(title="Vessel Thickness (m)", start=0.1, end=0.3, value=config.get("expert_vessel_t_ife", 0.2), step=0.05,
+    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
+
+widgets["outer_radius_display"] = Div(
+    text="<div style='margin:10px 0; font-weight:bold; color:#ffffff;'>Outer Vessel Radius: Calculating...</div>",
+    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False)
+)
+
+# Create Expert Config column layout
+expert_col = column(
+    widgets["expert_header"],
+    widgets["use_expert_geometry"],
+    widgets["geometry_mode_info"],
+    # MFE Geometry
+    widgets["mfe_geometry_header"],
+    widgets["expert_major_radius_m"],
+    widgets["expert_plasma_t"],
+    widgets["expert_elongation"],
+    widgets["expert_vacuum_t"],
+    widgets["expert_firstwall_t"],
+    widgets["expert_blanket_t"],
+    widgets["expert_reflector_t"],
+    widgets["expert_ht_shield_t"],
+    widgets["expert_structure_t"],
+    widgets["expert_gap_t"],
+    widgets["expert_vessel_t"],
+    widgets["expert_gap2_t"],
+    widgets["expert_lt_shield_t"],
+    widgets["expert_coil_t"],
+    widgets["expert_bio_shield_t"],
+    widgets["total_radius_display"],
+    # IFE Geometry
+    widgets["ife_geometry_header"],
+    widgets["expert_chamber_radius_m"],
+    widgets["expert_firstwall_t_ife"],
+    widgets["expert_blanket_t_ife"],
+    widgets["expert_reflector_t_ife"],
+    widgets["expert_structure_t_ife"],
+    widgets["expert_vessel_t_ife"],
+    widgets["outer_radius_display"],
+    styles={'background': '#001e3c', 'border-radius': '16px', 'padding': '24px', 'color': '#ffffff', 'font-family': 'Inter, Helvetica, Arial, sans-serif'},
+)
+
+# Create Expert Config Tab
+expert_tab = TabPanel(child=expert_col, title="Expert Config")
+
+# Attach expert geometry callback AFTER widget is created
+widgets["use_expert_geometry"].on_change("active", toggle_expert_geometry_visibility)
+
 # --- Tabs Layout ---
 
 
@@ -1665,7 +2177,7 @@ highlight_div.text = render_highlight_facts(outputs)
 dscr_metrics_div.text = render_dscr_metrics(outputs)
 equity_metrics_div.text = render_equity_metrics(outputs)
 get_avg_annual_return("Europe")
-tabs = Tabs(tabs=[main_tab, sens_tab, costing_tab])
+tabs = Tabs(tabs=[main_tab, sens_tab, costing_tab, expert_tab])
 
 sidebar_style = {
     "background": "#00375b",
@@ -1685,17 +2197,13 @@ styled_tabs = tabs
 
 # --- Layout: sidebar on left, tabs on right ---
 try:
+    # Clear any existing roots to prevent duplicate dashboards on reload
     doc = curdoc()
-    
-    # Clear existing roots if any to prevent duplicate dashboard rendering
-    if len(doc.roots) > 0:
-        print(f"DEBUG: Clearing {len(doc.roots)} existing roots to prevent duplication")
-        doc.clear()
+    doc.clear()
     
     outer_container = row(styled_sidebar, styled_tabs)
     
     doc.add_root(outer_container)
-    print(f"DEBUG: Added root - Current number of roots: {len(doc.roots)}")
     doc.title = "Fusion Cashflow Dashboard"
     
     # Add favicon to the document

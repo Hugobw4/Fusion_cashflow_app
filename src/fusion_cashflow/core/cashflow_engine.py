@@ -223,7 +223,15 @@ def get_avg_annual_return(region, start="2000-01-01", end=None):
     if end is None:
         end = pd.Timestamp.today().strftime("%Y-%m-%d")
     try:
-        df = web.DataReader(stooq_symbol, "stooq", start, end)
+        # Add timeout to prevent hanging on slow/blocked networks (e.g., AWS Lightsail)
+        import socket
+        original_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(5)  # 5 second timeout
+        try:
+            df = web.DataReader(stooq_symbol, "stooq", start, end)
+        finally:
+            socket.setdefaulttimeout(original_timeout)
+        
         if df.empty:
             # Final fallback: hardcoded value
             if region in HARDCODED_AVG_RETURNS:
@@ -429,44 +437,87 @@ def equity_multiple(cashflows, equity_investment):
 # =============================
 def get_default_config():
     """Return a dict of all model configuration parameters."""
-    construction_start_year = 2007
-    project_energy_start_year = 2034
+    construction_start_year = 2028
+    project_energy_start_year = 2031
     years_construction = project_energy_start_year - construction_start_year  # Default: difference of years
     return {
-        "project_name": "ITER",
-        "project_location": "South of France",
+        "project_name": "NOAK ARC",
+        "project_location": "USA",
         "construction_start_year": construction_start_year,
         "years_construction": years_construction,  # Always numeric, so included in sensitivity
         "project_energy_start_year": project_energy_start_year,
-        "plant_lifetime": 30,
+        "plant_lifetime": 32,
+        
+        # Reactor configuration (canonical codes: MFE, IFE, PWR)
+        "reactor_type": "MFE",
         "power_method": "MFE",
-        "net_electric_power_mw": 500,  # Core driver
-        "capacity_factor": 0.9,
-        "fuel_type": "Lithium-Solid",
-        "input_debt_pct": 0.70,
-        "cost_of_debt": 0.055,
-        "loan_rate": 0.055,
+        "fuel_type": "DT",  # Canonical fuel codes: DT, DD, DHE3, PB11
+        
+        # Core power parameters
+        "net_electric_power_mw": 400,  # Core driver
+        "capacity_factor": 0.92,
+        
+        # PyFECONS material selections (MFE)
+        "first_wall_material": "BERYLLIUM",  # Options: BERYLLIUM, TUNGSTEN, LIQUID_LITHIUM
+        "blanket_type": "SOLID_BREEDER_LI2TIO3",  # Options: SOLID_BREEDER_LI2TIO3, LIQUID_BREEDER_FLIBE, LIQUID_BREEDER_PBLI
+        "structure_material": "FERRITIC_STEEL",  # Options: FERRITIC_STEEL, STAINLESS_STEEL_316, INCOLOY
+        
+        # PyFECONS magnet configuration (MFE only)
+        "magnet_technology": "HTS_REBCO",  # Options: HTS_REBCO, HTS_YBCO, LTS_NB3SN, LTS_NBTI
+        "toroidal_field_tesla": 5.0,  # Toroidal field strength (T)
+        
+        # Q_eng is calculated by the costing power balance module (no manual override in cashflow)
+        
+        # Expert geometry overrides
+        "use_expert_geometry": False,  # If True, use expert_* parameters; if False, scale from template
+        
+        # Expert MFE radial build parameters (meters) - names match dashboard widgets
+        "expert_major_radius_m": 3.0,
+        "expert_plasma_t": 1.1,
+        "expert_elongation": 3.0,
+        "expert_vacuum_t": 0.1,
+        "expert_firstwall_t": 0.02,
+        "expert_blanket_t": 0.8,
+        "expert_reflector_t": 0.2,
+        "expert_ht_shield_t": 0.2,
+        "expert_structure_t": 0.2,
+        "expert_gap_t": 0.5,
+        "expert_vessel_t": 0.2,
+        "expert_gap2_t": 0.5,
+        "expert_lt_shield_t": 0.3,
+        "expert_coil_t": 1.0,
+        "expert_bio_shield_t": 1.0,
+        
+        # Financial parameters
+        "input_debt_pct": 0.50,
+        "cost_of_debt": 0.05,
+        "loan_rate": 0.05,
         "financing_fee": 0.015,
         "repayment_term_years": 20,
         "grace_period_years": 3,
-        "total_epc_cost": 13000000000,  # Core driver - used only if override_epc=True
-        "override_epc": False,  # NEW: If True, use manual total_epc_cost; if False, auto-generate from power
-        "override_q_eng": False,  # NEW: If True, use manual Q_eng; if False, auto-generate from Q model
-        "manual_q_eng": 4.0,  # Manual Q engineering value (used only if override_q_eng=True)
         "extra_capex_pct": 0.05,
-        "project_contingency_pct": 0.15,
-        "process_contingency_pct": 0.20,
+        # Contingency handled by CAS 29 in costing module (no double-counting)
+        "project_contingency_pct": 0.0,
+        "process_contingency_pct": 0.0,
+        
+        # O&M parameters
         "fixed_om_per_mw": 60000,
         "variable_om": 2.7,
-        "electricity_price": 100,  # Core driver
+        "electricity_price": 81,  # Core driver
+        
+        # Depreciation & end-of-life
         "dep_years": 20,
         "salvage_value": 10000000,
         "decommissioning_cost": 843000000,
+        
+        # Economic parameters
         "use_real_dollars": False,
         "price_escalation_active": True,
         "escalation_rate": 0.02,
         "include_fuel_cost": True,
         "apply_tax_model": True,
+        
+        # Ramp-up parameters
         "ramp_up": True,
         "ramp_up_years": 3,
         "ramp_up_rate_per_year": 0.33,
@@ -474,8 +525,8 @@ def get_default_config():
 
 
 def get_mfe_config():
-    """Return default configuration for MFE (Magnetic Fusion Energy) - ITER-based."""
-    return get_default_config()  # Uses ITER as the MFE baseline
+    """Return default configuration for MFE (Magnetic Fusion Energy) - NOAK ARC-based."""
+    return get_default_config()  # Uses NOAK ARC as the MFE baseline
 
 
 def get_pwr_config():
@@ -541,13 +592,12 @@ def get_ife_config():
         "financing_fee": 0.02,
         "repayment_term_years": 20,
         "grace_period_years": 3,
-        "total_epc_cost": 15000000000,  # Estimated higher than MFE due to laser systems
-        "override_epc": False,  # Use auto-generation for IFE
-        "override_q_eng": False,
-        "manual_q_eng": 3.5,  # Slightly lower Q than MFE
+        # No total_epc_cost or override_epc - always use embedded costing system
+        # Q_eng is calculated by costing power balance module
         "extra_capex_pct": 0.08,  # Higher contingency for laser systems
-        "project_contingency_pct": 0.18,
-        "process_contingency_pct": 0.22,
+        # Contingency handled by CAS 29 in costing module (no double-counting)
+        "project_contingency_pct": 0.0,
+        "process_contingency_pct": 0.0,
         "fixed_om_per_mw": 75000,  # Higher O&M due to laser maintenance
         "variable_om": 3.2,
         "electricity_price": 100,
@@ -596,34 +646,27 @@ def run_cashflow_scenario(config):
     plant_lifetime = int(round(plant_lifetime))
     power_method = config["power_method"]
     
-    # --- Power Method Specific Adjustments ---
-    # Only apply fuel type logic based on power method
-    if power_method == "MFE":  # Magnetic Fusion Energy (Tokamak)
-        # MFE should use fusion-compatible fuels
-        if config["fuel_type"] not in ["Lithium-Solid", "Lithium-Liquid", "Tritium"]:
-            fuel_type = "Lithium-Solid"  # Default for MFE
-        else:
-            fuel_type = config["fuel_type"]
-        
-    elif power_method == "IFE":  # Inertial Fusion Energy (Laser-driven)
-        # IFE should use fusion-compatible fuels
-        if config["fuel_type"] not in ["Lithium-Solid", "Lithium-Liquid", "Tritium"]:
-            fuel_type = "Tritium"  # Default for IFE
-        else:
-            fuel_type = config["fuel_type"]
-        
-    elif power_method == "PWR":  # Pressurized Water Reactor (Fission)
-        # PWR must use enriched uranium fuel
+    # --- Fuel Type Resolution ---
+    # Use canonical fuel_type_code (DT, DD, DHE3, PB11) from dashboard mapping
+    # Fall back to fuel_type for backward compatibility with PWR configs
+    fuel_code = config.get("fuel_type_code", "")
+    raw_fuel = config.get("fuel_type", "")
+    
+    if power_method == "PWR":
         fuel_type = "Fission Benchmark Enriched Uranium"
-            
+    elif fuel_code in ("DT", "DD"):
+        fuel_type = "Lithium-Solid"  # DT/DD fusion uses lithium breeding
+    elif fuel_code == "DHE3":
+        fuel_type = "Tritium"  # DHe3 still needs some tritium
+    elif fuel_code == "PB11":
+        fuel_type = "Tritium"  # pB11 aneutronic, minimal fuel cost
+    elif raw_fuel in ("Lithium-Solid", "Lithium-Liquid", "Tritium", "Fission Benchmark Enriched Uranium"):
+        fuel_type = raw_fuel  # Legacy format, pass through
     else:
-        # Default case - use config fuel type
-        fuel_type = config["fuel_type"]
-        if fuel_type not in ["Lithium-Solid", "Lithium-Liquid", "Tritium", "Fission Benchmark Enriched Uranium"]:
-            fuel_type = "Lithium-Solid"
+        fuel_type = "Lithium-Solid"  # Default fallback
     
     # Apply power method adjustments to key variables
-    net_electric_power_mw = config["net_electric_power_mw"]
+    net_electric_power_mw = config.get("net_electric_power_mw", 400)
     capacity_factor = config["capacity_factor"]  # Use config value directly
     input_debt_pct = config["input_debt_pct"]
     input_equity_pct = 1.0 - input_debt_pct
@@ -636,41 +679,49 @@ def run_cashflow_scenario(config):
     grace_period_years = int(round(grace_period_years))
     
     # --- Power-to-EPC Integration ---
-    override_epc = config.get("override_epc", False)
-    if override_epc or not POWER_TO_EPC_AVAILABLE:
-        # Use manual EPC cost from config
-        total_epc_cost = config["total_epc_cost"]
-    else:
-        # Auto-generate EPC cost from power using dispatcher
-        try:
-            region_factor = get_regional_factor(config["project_location"])
-            
-            # Use the new dispatcher function to handle different power methods
-            epc_cfg = {
-                "net_mw": net_electric_power_mw,
-                "years": years_construction,
-                "region_factor": region_factor,
-                "noak": True,  # Assume NOAK for cost optimization
-                "fuel_type": fuel_type,  # Pass fuel type for IFE
-                "impfreq": config.get("impfreq", 1.0),  # Implosion frequency for IFE
-            }
-            
-            # Call dispatcher based on power method
-            epc_result = compute_epc(power_method, epc_cfg)
-            total_epc_cost = epc_result["total_epc"]
-            
-            # Store EPC breakdown for analysis (includes full detailed_result)
-            config["_epc_breakdown"] = epc_result
-            
-        except Exception as e:
-            # Fallback to manual EPC if auto-generation fails
-            total_epc_cost = config["total_epc_cost"]
-            import warnings
-            warnings.warn(f"Power-to-EPC auto-generation failed: {e}. Using manual EPC cost.")
+    # Always use the new embedded costing system (no override option)
+    try:
+        from fusion_cashflow.core.power_to_epc import compute_epc
+        
+        # Call the new compute_epc with full config
+        epc_result = compute_epc(config)
+        total_epc_cost = epc_result["total_epc"]
+        
+        # Store EPC breakdown for analysis (includes full detailed_result, Q_eng, power_balance)
+        config["_epc_breakdown"] = epc_result
+        config["_q_eng"] = epc_result.get("power_balance", {}).get("q_eng", 0)
+        
+        # Use physics-derived P_net for all revenue/energy/O&M calculations
+        # This ensures consistency: costing calculates P_net from fusion power,
+        # thermal efficiency, and recirculating loads — that same P_net drives revenue.
+        p_net_from_costing = epc_result.get("power_balance", {}).get("p_net", None)
+        if p_net_from_costing is not None and p_net_from_costing > 0:
+            net_electric_power_mw = p_net_from_costing
+            config["net_electric_power_mw"] = p_net_from_costing
+        
+        # Use costing-derived O&M if available (physics-based, CAS 70)
+        costing_fixed_om = epc_result.get("costing_fixed_om_per_mw", None)
+        if costing_fixed_om is not None and costing_fixed_om > 0:
+            config["fixed_om_per_mw"] = costing_fixed_om
+        
+        # Use costing-derived annual fuel cost if available (physics-based, CAS 80)
+        costing_fuel = epc_result.get("costing_annual_fuel_cost", None)
+        if costing_fuel is not None:
+            config["_costing_annual_fuel_cost"] = costing_fuel
+        
+    except Exception as e:
+        # Fallback to a default EPC if costing fails
+        import warnings
+        warnings.warn(f"Embedded costing system failed: {e}. Using default $5B EPC cost.")
+        total_epc_cost = 5_000_000_000  # $5B default
+        config["_epc_breakdown"] = {}
+        config["_q_eng"] = 1.0
     
     extra_capex = total_epc_cost * config["extra_capex_pct"]
-    project_contingency_cost = total_epc_cost * config["project_contingency_pct"]
-    process_contingency_cost = total_epc_cost * config["process_contingency_pct"]
+    # NOTE: Contingency is handled by CAS 29 in the costing module.
+    # project_contingency_pct and process_contingency_pct removed to avoid double-counting.
+    project_contingency_cost = 0
+    process_contingency_cost = 0
     fixed_om = config["fixed_om_per_mw"] * net_electric_power_mw  # Use config values directly
     variable_om = config["variable_om"]  # Use config value directly
     electricity_price = config["electricity_price"]
@@ -690,25 +741,37 @@ def run_cashflow_scenario(config):
     # t1 = time.time(); print(f'[PROFILE] after input/config setup: {t1-t0:.2f}s')
     # --- Region/risk-free/tax calculations ---
     annual_energy_output_mwh = (net_electric_power_mw * 8760) * capacity_factor
-    if fuel_type == "Lithium-Solid":
-        fuel_price_per_g = 152.928
-        burn_kg_per_year_per_gw = 100
-        burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
-        fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
-    elif fuel_type == "Tritium":
-        fuel_price_per_g = 300
-        fuel_grams_per_mwh = 0.00947
-    elif fuel_type == "Lithium-Liquid":
-        fuel_price_per_g = 152.928
-        burn_kg_per_year_per_gw = 100
-        burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
-        fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
-    elif fuel_type == "Fission Benchmark Enriched Uranium":
-        fuel_price_per_g = 1.663
-        fuel_grams_per_mwh = 2.78 #https://world-nuclear.org/information-library/economic-aspects/economics-of-nuclear-power
+    
+    # Fuel cost: prefer costing-derived CAS 80 (physics-based) over hardcoded models
+    costing_annual_fuel = config.get("_costing_annual_fuel_cost", None)
+    if costing_annual_fuel is not None and costing_annual_fuel > 0 and power_method != "PWR":
+        # Use costing module's annual fuel cost (CAS 80) as base
+        total_fuel_cost = costing_annual_fuel
+        # Derive per-MWh rate for operation loop (escalation applied there)
+        fuel_cost_per_mwh_base = total_fuel_cost / annual_energy_output_mwh if annual_energy_output_mwh > 0 else 0
+        use_costing_fuel = True
     else:
-        raise ValueError("Invalid fuel type. Choose 'Lithium' or 'Tritium'.")
-    total_fuel_cost = annual_energy_output_mwh * fuel_grams_per_mwh * fuel_price_per_g
+        # Fallback to legacy fuel cost model
+        use_costing_fuel = False
+        if fuel_type == "Lithium-Solid":
+            fuel_price_per_g = 152.928
+            burn_kg_per_year_per_gw = 100
+            burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
+            fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
+        elif fuel_type == "Tritium":
+            fuel_price_per_g = 300
+            fuel_grams_per_mwh = 0.00947
+        elif fuel_type == "Lithium-Liquid":
+            fuel_price_per_g = 152.928
+            burn_kg_per_year_per_gw = 100
+            burn_g_per_year = burn_kg_per_year_per_gw * 1000 * (net_electric_power_mw / 1000)
+            fuel_grams_per_mwh = burn_g_per_year / annual_energy_output_mwh
+        elif fuel_type == "Fission Benchmark Enriched Uranium":
+            fuel_price_per_g = 1.663
+            fuel_grams_per_mwh = 2.78  # https://world-nuclear.org/information-library/economic-aspects/economics-of-nuclear-power
+        else:
+            raise ValueError("Invalid fuel type. Choose 'Lithium' or 'Tritium'.")
+        total_fuel_cost = annual_energy_output_mwh * fuel_grams_per_mwh * fuel_price_per_g
     region = map_location_to_region(config["project_location"])
     risk_free_rate = get_risk_free_rate(region)
     scenario = "base"
@@ -834,12 +897,21 @@ def run_cashflow_scenario(config):
         energy_vec.append(annual_energy)
         revenue = annual_energy * price
         revenue_vec.append(revenue)
-        fuel_price = fuel_price_per_g * esc
-        fuel = (
-            (fuel_grams_per_mwh * annual_energy) * fuel_price
-            if include_fuel_cost
-            else 0
-        )
+        if use_costing_fuel:
+            # Costing-derived fuel: scale by ramp and escalation
+            fuel = (
+                fuel_cost_per_mwh_base * annual_energy * esc
+                if include_fuel_cost
+                else 0
+            )
+        else:
+            # Legacy fuel model
+            fuel_price = fuel_price_per_g * esc
+            fuel = (
+                (fuel_grams_per_mwh * annual_energy) * fuel_price
+                if include_fuel_cost
+                else 0
+            )
         fuel_vec.append(fuel)
         variable_om_cost = variable_om * annual_energy * esc
         fixed_om_cost = fixed_om * esc
@@ -1090,18 +1162,17 @@ def run_sensitivity_analysis(base_config):
     drivers = [
         ("Construction Years", ["years_construction"]),
         ("Electricity Price", ["electricity_price"]),
-        ("EPC Cost", ["total_epc_cost"]),
-        ("Net Electric Power (MW)", ["net_electric_power_mw"]),
+        ("Plasma Q", ["q_plasma"]),
         ("Capacity Factor", ["capacity_factor"]),
         ("Debt Percentage", ["input_debt_pct"]),
     ]
     metrics = []
     # For each driver and band
     for driver, keys in drivers:
-        # Special handling for EPC Cost: force override to prevent auto-recalculation
+        # Note: EPC Cost sensitivity now uses embedded costing system
+        # The costing will be recalculated for each scenario automatically
         if driver == "EPC Cost":
             base_config_for_driver = copy.deepcopy(base_config)
-            base_config_for_driver["override_epc"] = True
             base_outputs = run_cashflow_scenario(base_config_for_driver)
         else:
             base_outputs = run_cashflow_scenario(base_config)
@@ -1132,9 +1203,8 @@ def run_sensitivity_analysis(base_config):
                         continue  # Key missing, skip this band
                 config_mod[key] *= 1 + band
                 
-                # Force override_epc when modifying total_epc_cost to prevent auto-recalculation
-                if key == "total_epc_cost":
-                    config_mod["override_epc"] = True
+                # Note: When modifying parameters, embedded costing will recalculate automatically
+                # No need to override - the new system handles parameter changes dynamically
                 
                 # Apply constraints to keep parameters within reasonable bounds
                 if key == "capacity_factor":
@@ -1160,32 +1230,3 @@ def run_sensitivity_analysis(base_config):
             )
     df = pd.DataFrame(metrics)
     return df
-
-def get_estimated_q_eng(config):
-    """
-    Get estimated engineering Q for the given configuration.
-    
-    Args:
-        config: Configuration dictionary with power and technology parameters
-        
-    Returns:
-        Float: Engineering Q estimate, either from Q model or manual override
-    """
-    override_q_eng = config.get("override_q_eng", False)
-    
-    if override_q_eng:
-        # Use manual Q_eng value
-        return config.get("manual_q_eng", 4.0)
-    elif Q_MODEL_AVAILABLE:
-        # Use dynamic Q model
-        try:
-            net_mw = config["net_electric_power_mw"]
-            power_method = config.get("power_method", "MFE")
-            return estimate_q_eng(net_mw, power_method)
-        except Exception as e:
-            import warnings
-            warnings.warn(f"Q model estimation failed: {e}. Using default Q=4.0")
-            return 4.0
-    else:
-        # Fallback to default Q value
-        return 4.0
