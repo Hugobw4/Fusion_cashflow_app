@@ -10,6 +10,8 @@
 # No plotting or file I/O in this module.
 # =============================
 
+import time
+import warnings
 import pandas as pd
 import numpy as np
 from scipy.special import expit
@@ -18,31 +20,67 @@ import pandas_datareader.data as web
 import datetime
 import requests
 
-# Try to import power_to_epc module, fall back to manual EPC if not available
+# Import compute_epc for EPC costing (Q_eng derived inside costing module)
 try:
-    from .power_to_epc import arpa_epc, get_regional_factor, compute_epc
-    POWER_TO_EPC_AVAILABLE = True
+    from .power_to_epc import compute_epc
 except ImportError:
-    # Fallback for standalone execution
     try:
         import sys
         import os
         sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-        from power_to_epc import arpa_epc, get_regional_factor, compute_epc
-        POWER_TO_EPC_AVAILABLE = True
+        from power_to_epc import compute_epc
     except ImportError:
-        POWER_TO_EPC_AVAILABLE = False
+        compute_epc = None
 
-# Try to import Q model for dynamic engineering Q estimation
-try:
-    from .q_model import estimate_q_eng
-    Q_MODEL_AVAILABLE = True
-except ImportError:
-    try:
-        from q_model import estimate_q_eng
-        Q_MODEL_AVAILABLE = True
-    except ImportError:
-        Q_MODEL_AVAILABLE = False
+
+# =============================
+# EPC Cache — skip expensive costing when only financial params change
+# =============================
+_epc_cache_key = None
+_epc_cache_result = None
+
+# Config keys that affect EPC costing (physics / geometry / materials)
+_EPC_RELEVANT_KEYS = (
+    "reactor_type_code", "fuel_type_code", "noak", "power_method",
+    "capacity_factor", "plant_lifetime",
+    "net_electric_power_mw", "fusion_power_mw", "auxiliary_power_mw",
+    "q_plasma", "thermal_efficiency",
+    # Geometry
+    "major_radius_m", "plasma_t", "vacuum_t", "firstwall_t", "blanket_t",
+    "reflector_t", "ht_shield_t", "structure_t", "gap_t", "vessel_t",
+    "coil_t", "elongation",
+    # Materials
+    "first_wall_material", "blanket_type", "structure_material",
+    # Magnets
+    "magnet_technology", "toroidal_field_tesla", "n_tf_coils",
+    "tape_width_m_actual", "coil_thickness_m",
+    # IFE
+    "chamber_radius_m", "driver_energy_mj", "repetition_rate_hz", "target_gain",
+    # Expert overrides
+    "use_expert_geometry",
+    "expert_major_radius_m", "expert_plasma_t", "expert_elongation",
+    "expert_vacuum_t", "expert_firstwall_t", "expert_blanket_t",
+    "expert_reflector_t", "expert_ht_shield_t", "expert_structure_t",
+    "expert_gap_t", "expert_vessel_t", "expert_gap2_t",
+    "expert_lt_shield_t", "expert_coil_t", "expert_bio_shield_t",
+)
+
+
+def _epc_cache_hash(config):
+    """Build a hashable key from physics-relevant config values."""
+    return tuple(config.get(k) for k in _EPC_RELEVANT_KEYS)
+
+
+def _compute_epc_cached(config):
+    """Return cached EPC result if physics params unchanged, else recompute."""
+    global _epc_cache_key, _epc_cache_result
+    key = _epc_cache_hash(config)
+    if key == _epc_cache_key and _epc_cache_result is not None:
+        return _epc_cache_result
+    result = compute_epc(config)
+    _epc_cache_key = key
+    _epc_cache_result = result
+    return result
 
 # =============================
 # Dictionaries & Mappings (Do Not Edit)
@@ -549,7 +587,6 @@ def get_pwr_config():
         "repayment_term_years": 30,
         "grace_period_years": 3,
         "total_epc_cost": 35000000000,
-        "override_epc": True,  # PWR uses historical actual cost
         "extra_capex_pct": 0.0,
         "project_contingency_pct": 0.0,
         "process_contingency_pct": 0.0,
@@ -630,8 +667,6 @@ def get_default_config_by_power_method(power_method):
 
 
 def run_cashflow_scenario(config):
-    import time
-    # print('[PROFILE] run_cashflow_scenario: start')
     t0 = time.time()
     # --- Input/config setup ---
     construction_start_year = config["construction_start_year"]
@@ -678,22 +713,15 @@ def run_cashflow_scenario(config):
     grace_period_years = config["grace_period_years"]
     grace_period_years = int(round(grace_period_years))
     
-    # --- Power-to-EPC Integration ---
-    # Always use the new embedded costing system (no override option)
+    # --- Power-to-EPC Integration (cached when only financial params change) ---
     try:
-        from fusion_cashflow.core.power_to_epc import compute_epc
-        
-        # Call the new compute_epc with full config
-        epc_result = compute_epc(config)
+        epc_result = _compute_epc_cached(config)
         total_epc_cost = epc_result["total_epc"]
         
-        # Store EPC breakdown for analysis (includes full detailed_result, Q_eng, power_balance)
         config["_epc_breakdown"] = epc_result
         config["_q_eng"] = epc_result.get("power_balance", {}).get("q_eng", 0)
         
-        # Use physics-derived P_net for all revenue/energy/O&M calculations
-        # This ensures consistency: costing calculates P_net from fusion power,
-        # thermal efficiency, and recirculating loads — that same P_net drives revenue.
+        # Use physics-derived P_net for revenue/energy/O&M consistency
         p_net_from_costing = epc_result.get("power_balance", {}).get("p_net", None)
         if p_net_from_costing is not None and p_net_from_costing > 0:
             net_electric_power_mw = p_net_from_costing
@@ -710,10 +738,8 @@ def run_cashflow_scenario(config):
             config["_costing_annual_fuel_cost"] = costing_fuel
         
     except Exception as e:
-        # Fallback to a default EPC if costing fails
-        import warnings
         warnings.warn(f"Embedded costing system failed: {e}. Using default $5B EPC cost.")
-        total_epc_cost = 5_000_000_000  # $5B default
+        total_epc_cost = 5_000_000_000
         config["_epc_breakdown"] = {}
         config["_q_eng"] = 1.0
     

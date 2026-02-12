@@ -11,14 +11,7 @@ print(f"Added to sys.path: {os.path.abspath(src_path)}")  # Debug print
 
 import holoviews as hv
 
-# Try to import nevergrad for optimization features (optional)
-try:
-    import nevergrad as ng
-    NEVERGRAD_AVAILABLE = True
-except ImportError:
-    print("Warning: nevergrad not available. Optimization features will be disabled.")
-    ng = None
-    NEVERGRAD_AVAILABLE = False
+import pandas as pd
 
 hv.extension("bokeh")
 from bokeh.io import curdoc
@@ -292,12 +285,6 @@ def render_equity_metrics(outputs):
     return html
 
 
-import holoviews as hv
-
-hv.extension("bokeh")
-from bokeh.models import (
-    Div,
-)
 from fusion_cashflow.core.cashflow_engine import (
     get_default_config,
     get_default_config_by_power_method,
@@ -313,17 +300,7 @@ from fusion_cashflow.visualization.bokeh_plots import (
     plot_sensitivity_heatmap,
 )
 
-# Import optimisation tools
-try:
-    scripts_path = os.path.join(current_dir, "..", "..", "..", "scripts")
-    sys.path.insert(0, os.path.abspath(scripts_path))
-    from optimization_tools import single_objective_fitness
-    OPTIMIZATION_AVAILABLE = NEVERGRAD_AVAILABLE  # Requires both nevergrad and optimization_tools
-except ImportError as e:
-    print(f"Warning: Could not import optimisation_tools: {e}")
-    OPTIMIZATION_AVAILABLE = False
-
-import pandas as pd
+OPTIMIZATION_AVAILABLE = True
 from bokeh.events import ButtonClick
 
 # --- Styling ---
@@ -820,11 +797,12 @@ def make_widgets(config):
         label="Optimise", 
         button_type="success",
         width=120,
-        disabled=not OPTIMIZATION_AVAILABLE
+        disabled=not OPTIMIZATION_AVAILABLE,
+        margin=(18, 0, 0, 0),
     )
     widgets["optimise_status"] = Div(
-        text="Ready to optimise" if OPTIMIZATION_AVAILABLE else "Optimisation not available",
-        styles={"color": "#ffffff" if OPTIMIZATION_AVAILABLE else "#ff6b6b", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
+        text="<div style='padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.08);color:#ffffff;font-size:13px;font-weight:600;font-family:Inter,Helvetica,Arial,sans-serif;'>Ready to optimise</div>" if OPTIMIZATION_AVAILABLE else "<div style='padding:8px 12px;border-radius:8px;background:rgba(255,100,100,0.12);color:#ff6b6b;font-size:13px;font-weight:600;font-family:Inter,Helvetica,Arial,sans-serif;'>Optimisation not available</div>",
+        width=280,
     )
     
     return widgets
@@ -1346,7 +1324,6 @@ funding_df = pd.DataFrame(
 )
 funding_source = ColumnDataSource(funding_df)
 # sens_source = ColumnDataSource(sensitivity_df)
-import pandas as pd
 sens_source = ColumnDataSource(pd.DataFrame())
 
 
@@ -1476,11 +1453,24 @@ dscr_table = DataTable(source=dscr_source, columns=dscr_columns, width=600, heig
 
 
 # --- Download buttons ---
-def make_download_button(source, label, filename):
+def make_download_button(source, label, data_type, project_widget):
     button = Button(label=label, button_type="primary", width=160)
     
-    # Create the download callback with the data source
-    download_callback = CustomJS(args=dict(source=source, filename=filename), code="""
+    # Create the download callback with the data source and project name
+    download_callback = CustomJS(args=dict(source=source, data_type=data_type, project_widget=project_widget), code="""
+        // Get project name and sanitize it
+        var projectName = project_widget.value || 'Project';
+        projectName = projectName.replace(/[^a-zA-Z0-9]/g, '_');
+        
+        // Generate timestamp (DD_MM_YYYY format)
+        var now = new Date();
+        var timestamp = now.getDate().toString().padStart(2, '0') + '_' +
+                       (now.getMonth() + 1).toString().padStart(2, '0') + '_' +
+                       now.getFullYear().toString();
+        
+        // Construct filename
+        var filename = 'FAS_Cashflow_' + projectName + '_' + timestamp + '_' + data_type + '.csv';
+        
         // Convert ColumnDataSource data to CSV
         var data = source.data;
         var columns = Object.keys(data);
@@ -1524,10 +1514,10 @@ def make_download_button(source, label, filename):
     return button
 
 
-annual_download = make_download_button(annual_source, " Download Annual Data", "annual.csv")
-cum_download = make_download_button(cum_source, " Download Cumulative Data", "cumulative.csv")
-dscr_download = make_download_button(dscr_source, " Download DSCR Data", "dscr.csv")
-sens_download = make_download_button(sens_source, " Download Sensitivity Data", "sensitivity.csv")
+annual_download = make_download_button(annual_source, " Download Annual Data", "annual", widgets["project_name"])
+cum_download = make_download_button(cum_source, " Download Cumulative Data", "cumulative", widgets["project_name"])
+dscr_download = make_download_button(dscr_source, " Download DSCR Data", "dscr", widgets["project_name"])
+sens_download = make_download_button(sens_source, " Download Sensitivity Data", "sensitivity", widgets["project_name"])
 
 
 # --- Layout ---
@@ -1640,9 +1630,9 @@ sidebar = column(
     widgets["ramp_up_rate_per_year"],
     
     # Optimization
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Optimisation- Experimental</h3>"),
-    widgets["optimise_target"],
-    row(widgets["optimise_button"], Spacer(width=10), widgets["optimise_status"]),
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Optimisation — Experimental</h3>"),
+    row(widgets["optimise_target"], Spacer(width=10), widgets["optimise_button"]),
+    widgets["optimise_status"],
     
     Spacer(height=16),
     annual_download,
@@ -1682,7 +1672,6 @@ main_col = column()
 main_tab = TabPanel(child=main_col, title="Main Results")
 
 # --- Sensitivity Analysis Tab ---
-from bokeh.models import Div
 grey_container_style = {
     "background": "#00375b",
     "border-radius": "16px",
@@ -1750,194 +1739,144 @@ costing_col = column(costing_panel, styles={'background': '#f5f5f5', 'border-rad
 costing_tab = TabPanel(child=costing_col, title="Cost Breakdown")
 
 
-# --- Optimization Function ---
+# --- Optimization Function (multi-variable, no nevergrad) ---
 # Global variables to track optimization state
 _optimization_running = False
 _optimization_result = None  # Store optimization results
 
+def _opt_status_html(text, color="#ffffff", bg="rgba(255,255,255,0.08)"):
+    """Wrap optimiser status text in a styled card."""
+    return (
+        f"<div style='padding:8px 12px;border-radius:8px;background:{bg};"
+        f"color:{color};font-size:13px;font-weight:600;"
+        f"font-family:Inter,Helvetica,Arial,sans-serif;line-height:1.5;'>"
+        f"{text}</div>"
+    )
+
+# Optimisation search space — matches slider bounds
+_OPT_VARS = {
+    "input_debt_pct":   {"low": 0.10, "high": 0.90, "step": 0.01},
+    "capacity_factor":  {"low": 0.50, "high": 0.95, "step": 0.01},
+    "electricity_price":{"low": 30,   "high": 400,  "step": 1},
+    "plant_lifetime":   {"low": 25,   "high": 60,   "step": 1},
+}
+
+def _latin_hypercube(n, rng):
+    """Return n quasi-random samples in [0,1)^d via Latin Hypercube Sampling."""
+    import numpy as np
+    d = len(_OPT_VARS)
+    result = np.zeros((n, d))
+    for j in range(d):
+        perm = rng.permutation(n)
+        for i in range(n):
+            result[i, j] = (perm[i] + rng.random()) / n
+    return result
+
+def _sample_to_config(unit_vec):
+    """Map a [0,1]^d vector to actual config values (respecting step)."""
+    import numpy as np
+    out = {}
+    for idx, (key, spec) in enumerate(_OPT_VARS.items()):
+        raw = spec["low"] + unit_vec[idx] * (spec["high"] - spec["low"])
+        # Snap to step
+        raw = round(raw / spec["step"]) * spec["step"]
+        raw = max(spec["low"], min(spec["high"], raw))
+        out[key] = raw
+    return out
+
 def run_optimiser():
-    """Run optimisation with the selected objective."""
+    """Multi-variable optimiser: LHS exploration + local refinement (~48 evals)."""
     global _optimization_running, _optimization_result
-    
-    print("Optimise button clicked!")  # Debug print
-    
-    # Prevent multiple simultaneous optimizations
+    import numpy as np
+
     if _optimization_running:
-        print("Optimisation already running, ignoring click")
-        widgets["optimise_status"].text = "Optimisation already running..."
-        widgets["optimise_status"].styles = {"color": "#ffcc00", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
+        widgets["optimise_status"].text = _opt_status_html("Optimisation already running...", "#ffcc00", "rgba(255,204,0,0.10)")
         return
-    
-    if not OPTIMIZATION_AVAILABLE:
-        widgets["optimise_status"].text = "Optimisation not available"
-        print("Optimisation not available")
-        return
-    
-    # Set running flag and disable button
+
     _optimization_running = True
-    _optimization_result = None  # Clear previous result
+    _optimization_result = None
     widgets["optimise_button"].disabled = True
-    widgets["optimise_status"].text = "Optimising... (3 attempts × 50 iterations)"
-    widgets["optimise_status"].styles = {"color": "#ffcc00", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
-    print("Starting optimisation...")
-    
+    widgets["optimise_status"].text = _opt_status_html("Optimising… ~48 evaluations", "#ffcc00", "rgba(255,204,0,0.10)")
+
     cfg0 = get_config_from_widgets(widgets)
-    
+
     def worker():
         global _optimization_running, _optimization_result
         try:
-            print("Worker thread started")
-            # Map UI labels to internal objective names
-            metric_map = {
-                "Max IRR": "IRR",
-                "Max NPV": "NPV", 
-                "Min LCOE": "LCOE"
-            }
+            metric_map = {"Max IRR": "IRR", "Max NPV": "NPV", "Min LCOE": "LCOE"}
             objective = metric_map[widgets["optimise_target"].value]
-            print(f"Objective: {objective}")
-            
-            # Get the region from project location
-            from fusion_cashflow.core.cashflow_engine import map_location_to_region
-            region = map_location_to_region(cfg0["project_location"])
-            print(f"Region: {region}")
-            
-            # Create Nevergrad instrumentation for debt ratio only
-            instr = ng.p.Instrumentation(
-                input_debt_pct=ng.p.Scalar(lower=0.30, upper=0.90)
-            )
-            
-            # Run multiple optimization attempts to find the absolute best
-            num_attempts = 3  # Run 3 independent optimizations
-            budget_per_attempt = 50  # More iterations per attempt
-            
-            all_results = []
-            
-            print(f"Running {num_attempts} optimisation attempts with {budget_per_attempt} iterations each...")
-            
-            for attempt in range(num_attempts):
-                print(f"Starting optimisation attempt {attempt + 1}/{num_attempts}")
-                
-                # Use OnePlusOne optimizer with more iterations
-                opt = ng.optimizers.OnePlusOne(parametrization=instr, budget=budget_per_attempt)
-                attempt_best = None
-                attempt_best_val = float("inf") if objective == "LCOE" else float("-inf")
-                
-                for i in range(opt.budget):
+            minimise = (objective == "LCOE")
+
+            rng = np.random.default_rng(42)
+
+            def evaluate(overrides):
+                """Run one cashflow scenario and return the objective value."""
+                cfg = cfg0.copy()
+                cfg.update(overrides)
+                out = run_cashflow_scenario(cfg)
+                val = {
+                    "IRR":  out.get("irr", -0.5),
+                    "NPV":  out.get("npv", -1e10),
+                    "LCOE": out.get("lcoe_val", 1000.0),
+                }[objective]
+                return val, overrides, out
+
+            # --- Phase 1: Latin Hypercube exploration (24 samples) ---
+            lhs = _latin_hypercube(24, rng)
+            results = []
+            for row in lhs:
+                try:
+                    overrides = _sample_to_config(row)
+                    val, ov, out = evaluate(overrides)
+                    results.append((val, ov, out))
+                except Exception:
+                    continue
+
+            if not results:
+                _optimization_result = {"success": False, "error": "All evaluations failed"}
+                return
+
+            # Sort: ascending for LCOE, descending for IRR/NPV
+            results.sort(key=lambda x: x[0], reverse=not minimise)
+
+            # --- Phase 2: Local refinement around top-3 (8 perturbations each) ---
+            top3 = results[:3]
+            var_keys = list(_OPT_VARS.keys())
+            for best_val, best_ov, best_out in top3:
+                for _ in range(8):
                     try:
-                        x = opt.ask()
-                        
-                        # Extract debt percentage parameter - handle both dict and tuple formats
-                        if hasattr(x.value, 'items') and isinstance(x.value, dict):
-                            # Dictionary format
-                            debt_pct = x.value["input_debt_pct"]
-                        elif isinstance(x.value, tuple) and len(x.value) == 2:
-                            # Tuple format (args, kwargs)
-                            args, kwargs = x.value
-                            debt_pct = kwargs.get("input_debt_pct", args[0] if args else 0.5)
-                        elif isinstance(x.value, (list, tuple)) and len(x.value) > 0:
-                            # Simple array/tuple format
-                            debt_pct = x.value[0]
-                        elif hasattr(x.value, '__getitem__'):
-                            # Other indexable format 
-                            debt_pct = x.value[0]
-                        else:
-                            # Single scalar value
-                            debt_pct = float(x.value)
-                        
-                        # Create modified config with new debt ratio
-                        cfg = cfg0.copy()
-                        cfg["input_debt_pct"] = debt_pct
-                        
-                        # Run cashflow scenario
-                        from fusion_cashflow.core import cashflow_engine
-                        out = cashflow_engine.run_cashflow_scenario(cfg)
-                        
-                        # Extract objective value
-                        val = {
-                            "IRR": out.get("irr", -0.5),
-                            "NPV": out.get("npv", -1e10), 
-                            "LCOE": out.get("lcoe_val", 1000.0)
-                        }[objective]
-                        
-                        # Calculate fitness (nevergrad minimizes, so negate for maximization)
-                        fitness = -val if objective in ["IRR", "NPV"] else val
-                        opt.tell(x, fitness)
-                        
-                        # Track best result for this attempt
-                        if ((objective == "LCOE" and val < attempt_best_val) or
-                            (objective != "LCOE" and val > attempt_best_val)):
-                            attempt_best_val = val
-                            attempt_best = (debt_pct, out)
-                            
-                    except Exception as e:
-                        # Handle errors in individual iterations
-                        print(f"Error in optimisation attempt {attempt + 1}, iteration {i}: {e}")
+                        perturbed = {}
+                        for key in var_keys:
+                            spec = _OPT_VARS[key]
+                            # ±10% of range, Gaussian
+                            delta = rng.normal(0, 0.10) * (spec["high"] - spec["low"])
+                            raw = best_ov[key] + delta
+                            raw = round(raw / spec["step"]) * spec["step"]
+                            raw = max(spec["low"], min(spec["high"], raw))
+                            perturbed[key] = raw
+                        val, ov, out = evaluate(perturbed)
+                        results.append((val, ov, out))
+                    except Exception:
                         continue
-                
-                # Store this attempt's result
-                if attempt_best is not None:
-                    all_results.append((attempt_best_val, attempt_best))
-                    print(f"Attempt {attempt + 1} completed: {objective}={attempt_best_val:.4f} @ debt={attempt_best[0]:.1%}")
-                else:
-                    print(f"Attempt {attempt + 1} failed to find valid results")
-            
-            # Find the absolute best result across all attempts
-            if all_results:
-                # Sort results: ascending for LCOE (minimize), descending for IRR/NPV (maximize)
-                if objective == "LCOE":
-                    all_results.sort(key=lambda x: x[0])  # Sort ascending (lower is better)
-                    best_val, best = all_results[0]  # Take the lowest LCOE
-                    print(f"BEST RESULT: Lowest {objective} = ${best_val:,.2f} @ debt {best[0]:.1%}")
-                else:
-                    all_results.sort(key=lambda x: x[0], reverse=True)  # Sort descending (higher is better)
-                    best_val, best = all_results[0]  # Take the highest IRR/NPV
-                    if objective == "IRR":
-                        print(f"BEST RESULT: Highest {objective} = {best_val*100:.2f}% @ debt {best[0]:.1%}")
-                    else:
-                        print(f"BEST RESULT: Highest {objective} = ${best_val:,.0f} @ debt {best[0]:.1%}")
-                
-                # Show comparison of all attempts
-                print("All attempts comparison:")
-                for i, (val, result) in enumerate(all_results):
-                    debt_pct = result[0]
-                    if objective == "LCOE":
-                        print(f"  Attempt {i+1}: LCOE=${val:,.2f} @ debt={debt_pct:.1%}")
-                    elif objective == "IRR":
-                        print(f"  Attempt {i+1}: IRR={val*100:.2f}% @ debt={debt_pct:.1%}")
-                    else:
-                        print(f"  Attempt {i+1}: NPV=${val:,.0f} @ debt={debt_pct:.1%}")
-                        
-            else:
-                best = None
-                best_val = None
-                print("All optimisation attempts failed")
-            
-            print(f"Optimisation complete. Best result: {best is not None}")
-            
-            # Store result for periodic callback to pick up
+
+            # Final sort and pick best
+            results.sort(key=lambda x: x[0], reverse=not minimise)
+            best_val, best_ov, best_out = results[0]
+
             _optimization_result = {
-                'best': best,
-                'best_val': best_val,
-                'objective': objective,
-                'success': best is not None
+                "success": True,
+                "best_overrides": best_ov,
+                "best_val": best_val,
+                "best_outputs": best_out,
+                "objective": objective,
+                "n_evals": len(results),
             }
-            if best:
-                print(f"Optimisation result stored: debt={best[0]:.3f}")
-            else:
-                print("Optimisation result stored: debt=None")
-            
+
         except Exception as e:
-            print(f"Worker thread error: {e}")
             import traceback
             traceback.print_exc()
-            _optimization_result = {
-                'best': None,
-                'error': str(e),
-                'success': False
-            }
-    
-    # Run optimization in background thread
-    print("Starting worker thread...")
+            _optimization_result = {"success": False, "error": str(e)}
+
     threading.Thread(target=worker, daemon=True).start()
 
 
@@ -1945,36 +1884,31 @@ def run_optimiser():
 def check_optimization_results():
     """Check if optimisation has completed and apply results."""
     global _optimization_running, _optimization_result
-    
+
     if _optimization_result is not None:
-        print("Processing optimisation result...")
         result = _optimization_result
-        _optimization_result = None  # Clear the result
-        
+        _optimization_result = None
+
         try:
-            if result['success'] and result['best'] is not None:
-                debt, outputs_updated = result['best']
-                objective = result['objective']
-                best_val = result['best_val']
-                
-                print(f"Applying successful optimisation: debt={debt:.3f}")
-                
-                # Update the debt percentage widget
-                old_value = widgets["input_debt_pct"].value
-                widgets["input_debt_pct"].value = debt
-                print(f"Debt widget changed from {old_value} to {widgets['input_debt_pct'].value}")
-                
-                # Update dashboard with optimized configuration
+            if result["success"]:
+                best_ov = result["best_overrides"]
+                best_val = result["best_val"]
+                objective = result["objective"]
+                n_evals = result.get("n_evals", "?")
+
+                # Apply optimised values to sliders
+                for key, val in best_ov.items():
+                    if key in widgets:
+                        widgets[key].value = val
+
+                # Re-run scenario with updated widgets and refresh dashboard
                 config_updated = get_config_from_widgets(widgets)
                 outputs_updated = run_cashflow_scenario(config_updated)
-                
-                # Update the highlight div with new metrics
+
                 highlight_div.text = render_highlight_facts(outputs_updated)
                 dscr_metrics_div.text = render_dscr_metrics(outputs_updated)
                 equity_metrics_div.text = render_equity_metrics(outputs_updated)
-                print("Highlight div and contextual financial metrics updated")
-                
-                # Update all plot data sources
+
                 annual_df = pd.DataFrame({
                     "Year": outputs_updated["year_labels_int"],
                     "Unlevered CF": outputs_updated["unlevered_cf_vec"],
@@ -1986,14 +1920,14 @@ def check_optimization_results():
                     "NOI": outputs_updated["noi_vec"],
                 })
                 annual_source.data = dict(ColumnDataSource(annual_df).data)
-                
+
                 cum_df = pd.DataFrame({
                     "Year": outputs_updated["year_labels_int"],
                     "Cumulative Unlevered CF": outputs_updated["cumulative_unlevered_cf_vec"],
                     "Cumulative Levered CF": outputs_updated["cumulative_levered_cf_vec"],
                 })
                 cum_source.data = dict(ColumnDataSource(cum_df).data)
-                
+
                 dscr_df = pd.DataFrame({
                     "Year": outputs_updated["year_labels_int"],
                     "DSCR": outputs_updated["dscr_vec"],
@@ -2001,44 +1935,47 @@ def check_optimization_results():
                     "Debt Service": [a + b for a, b in zip(outputs_updated["principal_paid_vec"], outputs_updated["interest_paid_vec"])]
                 })
                 dscr_source.data = dict(ColumnDataSource(dscr_df).data)
-                print("All data sources updated")
-                
-                # Format improvement message
+
+                # Format status message
                 delta = "↓" if objective == "LCOE" else "↑"
                 if objective == "LCOE":
-                    best_val_formatted = f"${best_val:,.2f}"
+                    fmt_val = f"${best_val:,.2f}"
                 elif objective == "IRR":
-                    best_val_formatted = f"{best_val*100:.2f}%"
-                else:  # NPV
-                    best_val_formatted = f"${best_val:,.0f}"
-                    
+                    fmt_val = f"{best_val*100:.2f}%"
+                else:
+                    fmt_val = f"${best_val:,.0f}"
+
+                parts = []
+                _short = {"input_debt_pct": "Debt", "capacity_factor": "CF",
+                           "electricity_price": "Price", "plant_lifetime": "Life"}
+                for k, v in best_ov.items():
+                    lbl = _short.get(k, k)
+                    if k in ("input_debt_pct", "capacity_factor"):
+                        parts.append(f"{lbl} {v:.0%}")
+                    elif k == "electricity_price":
+                        parts.append(f"{lbl} ${v:.0f}/MWh")
+                    elif k == "plant_lifetime":
+                        parts.append(f"{lbl} {int(v)}yr")
+                summary = " &middot; ".join(parts)
+
                 status_text = (
-                    f"Optimised: {objective} {delta} to "
-                    f"{best_val_formatted} @ debt {debt:.0%}"
+                    f"<b>{objective} {delta} {fmt_val}</b><br>"
+                    f"<span style='font-size:12px;font-weight:400;opacity:0.85;'>{summary} &nbsp;·&nbsp; {n_evals} evals</span>"
                 )
-                widgets["optimise_status"].text = status_text
-                widgets["optimise_status"].styles = {"color": "#00cc66", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
-                print(f"Status updated: {status_text}")
-                
+                widgets["optimise_status"].text = _opt_status_html(status_text, "#00cc66", "rgba(0,204,102,0.10)")
+
             else:
-                # Handle optimization failure
-                error_msg = result.get('error', 'Unknown error')
-                print(f"Optimisation failed: {error_msg}")
-                widgets["optimise_status"].text = f"Optimisation failed: {error_msg[:30]}..."
-                widgets["optimise_status"].styles = {"color": "#ff6b6b", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
-                
+                error_msg = result.get("error", "Unknown error")
+                widgets["optimise_status"].text = _opt_status_html(f"Optimisation failed: {error_msg[:40]}", "#ff6b6b", "rgba(255,100,100,0.10)")
+
         except Exception as apply_error:
-            print(f"Error applying optimisation results: {apply_error}")
             import traceback
             traceback.print_exc()
-            widgets["optimise_status"].text = f"Apply error: {str(apply_error)[:30]}..."
-            widgets["optimise_status"].styles = {"color": "#ff6b6b", "font-size": "18px", "font-weight": "800", "font-family": "Inter, Helvetica, Arial, sans-serif"}
-        
+            widgets["optimise_status"].text = _opt_status_html(f"Apply error: {str(apply_error)[:40]}", "#ff6b6b", "rgba(255,100,100,0.10)")
+
         finally:
-            # Always re-enable button and reset running flag
             widgets["optimise_button"].disabled = False
             _optimization_running = False
-            print("Optimisation completed and button re-enabled")
 
 
 # --- Proper widget callback binding to avoid closure issues and use debouncing ---
