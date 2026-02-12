@@ -1,9 +1,8 @@
 # Fusion Cashflow App - Main Requirements
 # Install with: pip install -r requirements.txt
 
-# Note: Using direct imports via sys.path in dashboard.py instead of editable install
-# to avoid double-src path issues on Render
-# -e .
+# Install the local package in editable mode
+-e .
 
 # Python compatibility fix for distutils (removed in Python 3.13)
 setuptools>=65.0.0

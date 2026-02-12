@@ -15,7 +15,8 @@ setup(
         "holoviews>=1.15.0",
         "scipy>=1.9.0",
         "numpy_financial>=1.0.0",
-        "pandas_datareader>=0.10.0",
+        # pandas_datareader removed - breaks on Python 3.13, using hardcoded fallbacks
+        # "pandas_datareader>=0.10.0",
         "jinja2>=3.0.0"
     ],
     extras_require={
