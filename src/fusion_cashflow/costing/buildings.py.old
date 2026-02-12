@@ -1,0 +1,176 @@
+"""
+Building and site costs (CAS 21).
+Extracted from PyFECONS cas21_buildings.py
+"""
+from typing import Dict
+
+
+def cost_reactor_building(thermal_power_mw: float) -> float:
+    """
+    Cost of reactor containment building (CAS 21.01).
+    Scales with thermal power.
+    
+    Args:
+        thermal_power_mw: Reactor thermal power output
+    
+    Returns:
+        Building cost in million USD
+    """
+    # Reference: 2600 MW thermal → $400M building
+    # Scales as P^0.6 (economy of scale)
+    reference_power = 2600  # MW
+    reference_cost = 400  # M$
+    
+    cost = reference_cost * (thermal_power_mw / reference_power) ** 0.6
+    
+    return cost
+
+
+def cost_turbine_building(electric_power_mw: float) -> float:
+    """
+    Cost of turbine/generator building (CAS 21.02).
+    
+    Args:
+        electric_power_mw: Gross electric output
+    
+    Returns:
+        Building cost in million USD
+    """
+    # Scales with electric power
+    # Reference: 1000 MWe → $200M
+    reference_power = 1000
+    reference_cost = 200
+    
+    cost = reference_cost * (electric_power_mw / reference_power) ** 0.6
+    
+    return cost
+
+
+def cost_auxiliary_buildings(total_plant_power: float) -> float:
+    """
+    Cost of auxiliary buildings (CAS 21.03-21.09).
+    Includes: hot cell, fuel handling, control room, admin, etc.
+    
+    Args:
+        total_plant_power: Total thermal + electric power
+    
+    Returns:
+        Total auxiliary buildings cost in million USD
+    """
+    # Hot cell / maintenance building
+    hot_cell = 150  # M$ (fairly constant for fusion plants)
+    
+    # Fuel handling (for DT fuel)
+    fuel_handling = 80
+    
+    # Control room and electrical systems
+    control = 100
+    
+    # Administration, shops, warehouses
+    admin = 60
+    
+    # Site improvements, roads, etc.
+    site = 50
+    
+    total_aux = hot_cell + fuel_handling + control + admin + site
+    
+    # Scale slightly with plant size
+    scale_factor = (total_plant_power / 3000) ** 0.3
+    
+    return total_aux * scale_factor
+
+
+def estimate_building_costs(config: Dict, power_balance: Dict) -> Dict[str, float]:
+    """
+    Estimate all building costs (CAS 21).
+    
+    Args:
+        config: Reactor configuration
+        power_balance: Power balance results with thermal and electric power
+    
+    Returns:
+        Building cost breakdown in million USD
+    """
+    costs = {}
+    
+    thermal_power = power_balance.get("p_thermal", 2000)
+    electric_power = power_balance.get("p_electric_gross", 800)
+    
+    costs["reactor_building"] = cost_reactor_building(thermal_power)
+    costs["turbine_building"] = cost_turbine_building(electric_power)
+    costs["auxiliary_buildings"] = cost_auxiliary_buildings(thermal_power + electric_power)
+    
+    # Total CAS 21
+    costs["cas_21_total"] = sum(costs.values())
+    
+    return costs
+
+
+def cost_turbine_equipment(electric_power_mw: float, reactor_type: str = "MFE") -> float:
+    """
+    Turbine and generator equipment (CAS 23).
+    
+    Args:
+        electric_power_mw: Gross electric power
+        reactor_type: MFE or IFE (IFE may have direct conversion)
+    
+    Returns:
+        Turbine cost in million USD
+    """
+    if reactor_type == "IFE":
+        # Some IFE concepts use direct energy conversion
+        # Assume 50% thermal cycle, 50% direct conversion
+        direct_fraction = 0.5
+        turbine_fraction = 0.5
+    else:
+        # MFE uses 100% thermal cycle
+        direct_fraction = 0.0
+        turbine_fraction = 1.0
+    
+    # Turbine cost scales roughly as $600/kW for large units
+    turbine_thermal_cost = electric_power_mw * turbine_fraction * 0.6  # M$
+    
+    # Direct conversion equipment (if applicable)
+    direct_cost = electric_power_mw * direct_fraction * 0.3  # M$ (cheaper than turbine)
+    
+    total_cost = turbine_thermal_cost + direct_cost
+    
+    # Generator, condenser, feedwater system
+    balance_of_plant = total_cost * 0.4
+    
+    return total_cost + balance_of_plant
+
+
+def cost_electrical_equipment(electric_power_mw: float) -> float:
+    """
+    Electrical switchgear, transformers, distribution (CAS 24).
+    
+    Args:
+        electric_power_mw: Plant electric capacity
+    
+    Returns:
+        Electrical equipment cost in million USD
+    """
+    # Scales roughly as $200/kW for high-power systems
+    cost = electric_power_mw * 0.2  # M$
+    
+    return cost
+
+
+def cost_heat_rejection(thermal_power_mw: float) -> float:
+    """
+    Cooling towers and heat rejection system (CAS 26).
+    
+    Args:
+        thermal_power_mw: Waste heat to reject
+    
+    Returns:
+        Heat rejection cost in million USD
+    """
+    # Waste heat is typically 50-60% of thermal power
+    waste_heat = thermal_power_mw * 0.55
+    
+    # Cooling towers cost ~$50/kW of heat rejection
+    cost = waste_heat * 0.05  # M$
+    
+    return cost

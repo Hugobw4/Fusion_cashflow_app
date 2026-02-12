@@ -1,0 +1,212 @@
+"""
+Power balance calculations for fusion reactors.
+Extracted from PyFECONS power_balance calculations.
+"""
+from typing import Dict, Tuple
+
+
+class PowerBalance:
+    """Calculate power flows and Q_eng for fusion reactor."""
+    
+    def __init__(self, config: Dict):
+        """
+        Initialize power balance calculator.
+        
+        Args:
+            config: Dictionary with power parameters:
+                - p_fusion_mw: Fusion power output (MW)
+                - fuel_type: "DT", "DD", "DHE3", "PB11"
+                - thermal_efficiency: Thermal-to-electric conversion (0.4-0.5)
+                - auxiliary_power_mw: Fixed auxiliary systems (MW)
+                - f_neutron: Fraction of fusion energy in neutrons
+                - blanket_multiplication: Neutron multiplication factor (1.1-1.2)
+        """
+        self.p_fusion = config.get("p_fusion_mw", 1000)
+        self.fuel_type = config.get("fuel_type", "DT")
+        self.eta_thermal = config.get("thermal_efficiency", 0.46)
+        self.p_aux = config.get("auxiliary_power_mw", 50)
+        
+        # Fuel-specific parameters
+        if self.fuel_type == "DT":
+            self.f_neutron = 0.8  # 80% neutron energy, 20% charged particles
+            self.blanket_mult = config.get("blanket_multiplication", 1.1)
+        elif self.fuel_type == "PB11":
+            self.f_neutron = 0.01  # Nearly aneutronic
+            self.blanket_mult = 1.0
+        elif self.fuel_type == "DD":
+            self.f_neutron = 0.67
+            self.blanket_mult = 1.05
+        else:  # DHE3
+            self.f_neutron = 0.05
+            self.blanket_mult = 1.0
+    
+    def calculate(self) -> Dict[str, float]:
+        """
+        Calculate complete power balance.
+        
+        Returns:
+            Dictionary with:
+                - p_fusion: Fusion power (MW)
+                - p_neutron: Neutron power (MW)
+                - p_charged: Charged particle power (MW)
+                - p_thermal: Total recoverable thermal power (MW)
+                - p_electric_gross: Gross electric power (MW)
+                - p_recirculating: Recirculating power for auxiliary systems (MW)
+                - p_electric_net: Net electric power to grid (MW)
+                - q_eng: Engineering Q = P_electric_net / P_aux
+                - q_plasma: Plasma Q = P_fusion / P_aux (for reference)
+        """
+        result = {}
+        
+        # Split fusion power between neutrons and charged particles
+        result["p_fusion"] = self.p_fusion
+        result["p_neutron"] = self.p_fusion * self.f_neutron
+        result["p_charged"] = self.p_fusion * (1 - self.f_neutron)
+        
+        # Apply blanket multiplication to neutron energy
+        p_neutron_recovered = result["p_neutron"] * self.blanket_mult
+        
+        # Total thermal power (neutrons with multiplication + charged particles)
+        result["p_thermal"] = p_neutron_recovered + result["p_charged"]
+        
+        # Convert thermal to electric (Carnot-limited)
+        result["p_electric_gross"] = result["p_thermal"] * self.eta_thermal
+        
+        # Auxiliary power loads (housekeeping, cooling, heating, etc.)
+        result["p_auxiliary"] = self.p_aux
+        
+        # Additional recirculating power for MFE (magnets, heating)
+        # For IFE this includes driver recirculation
+        if self.fuel_type in ["DT", "DD", "DHE3"]:  # MFE typically
+            # Magnet cooling, cryogenics, plasma heating
+            p_magnet_cooling = 10  # MW (rough estimate)
+            p_cryo = 5
+            p_heating_recirc = max(0, self.p_aux * 0.2)  # 20% of aux power
+            result["p_recirculating"] = p_magnet_cooling + p_cryo + p_heating_recirc
+        else:  # IFE
+            # Laser/driver efficiency losses
+            driver_efficiency = 0.10  # 10% wall-plug efficiency typical for lasers
+            p_driver_input = self.p_aux / driver_efficiency
+            result["p_recirculating"] = p_driver_input - self.p_aux
+        
+        # Net electric output
+        result["p_electric_net"] = (result["p_electric_gross"] - 
+                                     result["p_auxiliary"] - 
+                                     result["p_recirculating"])
+        
+        # Calculate Q values
+        result["q_plasma"] = self.p_fusion / self.p_aux if self.p_aux > 0 else 0
+        result["q_eng"] = result["p_electric_net"] / self.p_aux if self.p_aux > 0 else 0
+        
+        # Sanity check
+        if result["p_electric_net"] < 0:
+            result["q_eng"] = 0  # Not a net power producer
+            result["warning"] = "Negative net power - reactor consumes more than it produces"
+        
+        return result
+    
+    @staticmethod
+    def calculate_q_eng(p_fusion_mw: float, p_aux_mw: float, fuel_type: str = "DT",
+                        thermal_efficiency: float = 0.46) -> float:
+        """
+        Quick Q_eng calculation without full power balance.
+        
+        Args:
+            p_fusion_mw: Fusion power (MW)
+            p_aux_mw: Auxiliary input power (MW)
+            fuel_type: Fuel cycle type
+            thermal_efficiency: Thermal conversion efficiency
+        
+        Returns:
+            Engineering Q factor
+        """
+        pb = PowerBalance({
+            "p_fusion_mw": p_fusion_mw,
+            "fuel_type": fuel_type,
+            "thermal_efficiency": thermal_efficiency,
+            "auxiliary_power_mw": p_aux_mw
+        })
+        result = pb.calculate()
+        return result["q_eng"]
+    
+    @staticmethod
+    def required_fusion_power_for_q(target_q: float, p_aux_mw: float, 
+                                    fuel_type: str = "DT",
+                                    thermal_efficiency: float = 0.46) -> float:
+        """
+        Calculate required fusion power to achieve target Q_eng.
+        
+        Args:
+            target_q: Desired engineering Q
+            p_aux_mw: Auxiliary input power (MW)
+            fuel_type: Fuel cycle type
+            thermal_efficiency: Thermal conversion efficiency
+        
+        Returns:
+            Required fusion power (MW)
+        """
+        # Iterative search (simple binary search)
+        p_low = p_aux_mw * 2  # Start with Q_plasma = 2
+        p_high = p_aux_mw * 100  # Up to Q_plasma = 100
+        
+        for _ in range(20):  # 20 iterations should converge
+            p_mid = (p_low + p_high) / 2
+            q_eng = PowerBalance.calculate_q_eng(p_mid, p_aux_mw, fuel_type, thermal_efficiency)
+            
+            if abs(q_eng - target_q) < 0.01:  # Within 1% of target
+                return p_mid
+            
+            if q_eng < target_q:
+                p_low = p_mid
+            else:
+                p_high = p_mid
+        
+        return (p_low + p_high) / 2  # Best estimate
+
+
+def calculate_gain(p_out: float, p_in: float) -> float:
+    """
+    Calculate gain factor Q = P_out / P_in
+    
+    Args:
+        p_out: Output power (MW)
+        p_in: Input power (MW)
+    
+    Returns:
+        Gain factor (dimensionless)
+    """
+    if p_in <= 0:
+        return 0.0
+    return p_out / p_in
+
+
+def calculate_lcoe_from_power(p_electric_net_mw: float, capital_cost_m: float,
+                              annual_om_m: float, plant_lifetime_years: int = 30,
+                              capacity_factor: float = 0.85) -> float:
+    """
+    Calculate Levelized Cost of Electricity.
+    
+    Args:
+        p_electric_net_mw: Net electric power (MW)
+        capital_cost_m: Total capital cost (million $)
+        annual_om_m: Annual O&M cost (million $/year)
+        plant_lifetime_years: Operating lifetime
+        capacity_factor: Availability factor
+    
+    Returns:
+        LCOE in $/MWh
+    """
+    # Annual energy production
+    hours_per_year = 8760
+    mwh_per_year = p_electric_net_mw * hours_per_year * capacity_factor
+    
+    if mwh_per_year <= 0:
+        return float('inf')
+    
+    # Simplified LCOE (no discount rate for now)
+    total_lifetime_cost = capital_cost_m + (annual_om_m * plant_lifetime_years)
+    total_lifetime_energy = mwh_per_year * plant_lifetime_years
+    
+    lcoe = (total_lifetime_cost * 1e6) / total_lifetime_energy  # Convert M$ to $
+    
+    return lcoe

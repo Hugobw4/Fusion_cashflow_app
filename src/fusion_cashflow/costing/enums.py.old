@@ -1,0 +1,107 @@
+"""
+Enumerations for reactor types, materials, and configurations.
+Extracted from PyFECONS enums.py
+"""
+from enum import Enum
+
+
+class ReactorType(Enum):
+    """Fusion machine type"""
+    MFE = "MFE"  # Magnetic Fusion Energy
+    IFE = "IFE"  # Inertial Fusion Energy
+
+
+class ConfinementType(Enum):
+    """Plasma confinement configuration"""
+    SPHERICAL_TOKAMAK = "SPHERICAL_TOKAMAK"
+    CONVENTIONAL_TOKAMAK = "CONVENTIONAL_TOKAMAK"
+    MAGNETIC_MIRROR = "MAGNETIC_MIRROR"
+    STELLARATOR = "STELLARATOR"
+    LASER_DIRECT_DRIVE = "LASER_DIRECT_DRIVE"
+    LASER_INDIRECT_DRIVE = "LASER_INDIRECT_DRIVE"
+
+
+class FuelType(Enum):
+    """Fusion fuel cycle"""
+    DT = ("DT", "Deuterium-Tritium")
+    DD = ("DD", "Deuterium-Deuterium")
+    DHE3 = ("DHE3", "Deuterium-Helium-3")
+    PB11 = ("PB11", "Proton-Boron-11")
+    
+    def __new__(cls, value, display_name):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.display_name = display_name
+        return obj
+
+
+class BlanketFirstWall(Enum):
+    """First wall material facing plasma"""
+    TUNGSTEN = ("TUNGSTEN", "Tungsten")
+    LIQUID_LITHIUM = ("LIQUID_LITHIUM", "Liquid Lithium")
+    BERYLLIUM = ("BERYLLIUM", "Beryllium")
+    FLIBE = ("FLIBE", "FLiBe")
+    
+    def __new__(cls, value, display_name):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.display_name = display_name
+        return obj
+
+
+class BlanketType(Enum):
+    """Blanket breeding configuration"""
+    FLOWING_LIQUID = ("FLOWING_LIQUID", "Flowing Liquid Breeder")
+    SOLID_BREEDER_LI2TIO3 = ("SOLID_BREEDER_LI2TIO3", "Solid Breeder (Li2TiO3)")
+    SOLID_BREEDER_LI4SIO4 = ("SOLID_BREEDER_LI4SIO4", "Solid Breeder (Li4SiO4)")
+    NO_BREEDER = ("NO_BREEDER", "No Breeder (Aneutronic)")
+    
+    def __new__(cls, value, display_name):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.display_name = display_name
+        return obj
+
+
+class CoolantType(Enum):
+    """Primary coolant"""
+    HELIUM = ("HELIUM", "Helium")
+    LITHIUM = ("LITHIUM", "Lithium")
+    LEAD_LITHIUM = ("LEAD_LITHIUM", "Lead-Lithium (PbLi)")
+    FLIBE = ("FLIBE", "FLiBe")
+    WATER = ("WATER", "Water")
+    
+    def __new__(cls, value, display_name):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.display_name = display_name
+        return obj
+
+
+class StructureMaterial(Enum):
+    """Structural material"""
+    STAINLESS_STEEL = ("SS", "Stainless Steel")
+    FERRITIC_STEEL = ("FMS", "Ferritic-Martensitic Steel")
+    ODS_STEEL = ("ODS", "Oxide Dispersion Strengthened Steel")
+    VANADIUM = ("V", "Vanadium Alloy")
+    
+    def __new__(cls, value, display_name):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.display_name = display_name
+        return obj
+
+
+class MagnetTechnology(Enum):
+    """Superconducting magnet type"""
+    HTS_REBCO = ("HTS_REBCO", "HTS REBCO Tape")
+    HTS_CICC = ("HTS_CICC", "HTS Cable-in-Conduit")
+    LTS_NBTI = ("LTS_NBTI", "LTS NbTi")
+    LTS_NB3SN = ("LTS_NB3SN", "LTS Nb3Sn")
+    COPPER = ("COPPER", "Copper (resistive)")
+    
+    def __new__(cls, value, display_name):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.display_name = display_name
+        return obj

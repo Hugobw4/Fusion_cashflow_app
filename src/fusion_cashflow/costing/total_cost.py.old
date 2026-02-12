@@ -1,0 +1,232 @@
+"""
+Total EPC cost calculation - aggregates all components.
+Main entry point for fusion reactor costing.
+"""
+from typing import Dict
+from .geometry import ReactorGeometry
+from .power_balance import PowerBalance
+from .reactor_equipment import estimate_total_reactor_cost
+from .magnets import estimate_magnet_cost
+from .buildings import (
+    estimate_building_costs,
+    cost_turbine_equipment,
+    cost_electrical_equipment,
+    cost_heat_rejection
+)
+
+
+def compute_total_epc_cost(config: Dict) -> Dict[str, float]:
+    """
+    Compute total EPC (Engineering, Procurement, Construction) cost
+    for a fusion power plant.
+    
+    This is the main costing function that aggregates all subsystems.
+    
+    Args:
+        config: Complete reactor configuration dictionary with:
+            - Reactor parameters (type, power, geometry)
+            - Material selections
+            - Magnet specifications
+            - Power balance parameters
+    
+    Returns:
+        Dictionary with complete cost breakdown:
+            - Component costs (magnets, reactor equipment, buildings, etc.)
+            - Subtotals for major categories (CAS 21, 22, 23, etc.)
+            - Total EPC cost
+            - Calculated Q_eng
+            - Power balance results
+            All costs in million USD
+    """
+    results = {}
+    
+    # 1. Calculate Power Balance
+    power_config = {
+        "p_fusion_mw": config.get("p_nrl_fusion_power_mw", 1000),
+        "fuel_type": config.get("fuel_type", "DT"),
+        "thermal_efficiency": config.get("thermal_efficiency", 0.46),
+        "auxiliary_power_mw": config.get("auxiliary_power_mw", 50)
+    }
+    
+    pb = PowerBalance(power_config)
+    power_balance = pb.calculate()
+    results["power_balance"] = power_balance
+    results["q_eng"] = power_balance["q_eng"]
+    
+    # 2. Calculate Geometry and Volumes
+    radial_build = {
+        "major_radius_m": config.get("major_radius_m", 3.0),
+        "plasma_t": config.get("plasma_t", 1.1),
+        "vacuum_t": config.get("vacuum_t", 0.1),
+        "firstwall_t": config.get("firstwall_t", 0.02),
+        "blanket_t": config.get("blanket_t", 0.8),
+        "reflector_t": config.get("reflector_t", 0.2),
+        "ht_shield_t": config.get("ht_shield_t", 0.2),
+        "structure_t": config.get("structure_t", 0.2),
+        "gap_t": config.get("gap_t", 0.5),
+        "vessel_t": config.get("vessel_t", 0.2),
+        "coil_t": config.get("coil_t", 1.0),
+        "elongation": config.get("elongation", 3.0),
+        "chamber_radius_m": config.get("chamber_radius_m", 8.0)  # For IFE
+    }
+    
+    reactor_type = config.get("reactor_type", "MFE")
+    geom = ReactorGeometry(radial_build, reactor_type)
+    volumes = geom.calculate_volumes()
+    results["volumes"] = volumes
+    
+    # 3. Reactor Equipment Costs (CAS 22.01)
+    reactor_costs = estimate_total_reactor_cost(config)
+    results.update(reactor_costs)
+    results["cas_2201"] = reactor_costs.get("cas_2201_total", 0)
+    
+    # 4. Magnet Costs (CAS 22.03)
+    magnet_costs = estimate_magnet_cost(config, volumes)
+    results.update({f"magnet_{k}": v for k, v in magnet_costs.items()})
+    results["cas_2203"] = magnet_costs.get("total_magnets", 0)
+    
+    # 5. Other Reactor Plant Equipment (CAS 22.xx)
+    # Heating systems, coolant systems, etc.
+    aux_power = config.get("auxiliary_power_mw", 50)
+    
+    # Heating systems (NBI, ICRF, ECRH) - scales with auxiliary power
+    results["heating_systems"] = aux_power * 2.0  # M$ (~$2M per MW of heating)
+    
+    # Primary coolant system
+    thermal_mw = power_balance["p_thermal"]
+    results["coolant_system"] = thermal_mw * 0.5  # M$
+    
+    # Fuel handling and tritium systems (for DT fuel)
+    if config.get("fuel_type") == "DT":
+        results["tritium_systems"] = 200  # M$ (significant for DT cycle)
+    else:
+        results["tritium_systems"] = 0
+    
+    # Instrumentation and control
+    results["instrumentation"] = 85  # M$ (fairly constant)
+    
+    # Total CAS 22 (Reactor Plant Equipment)
+    results["cas_22_total"] = (
+        results["cas_2201"] +
+        results["cas_2203"] +
+        results["heating_systems"] +
+        results["coolant_system"] +
+        results["tritium_systems"] +
+        results["instrumentation"]
+    )
+    
+    # 6. Buildings (CAS 21)
+    building_costs = estimate_building_costs(config, power_balance)
+    results.update({f"building_{k}": v for k, v in building_costs.items()})
+    results["cas_21_total"] = building_costs["cas_21_total"]
+    
+    # 7. Turbine Plant Equipment (CAS 23)
+    results["cas_23_turbine"] = cost_turbine_equipment(
+        power_balance["p_electric_gross"],
+        reactor_type
+    )
+    
+    # 8. Electrical Equipment (CAS 24)
+    results["cas_24_electrical"] = cost_electrical_equipment(
+        power_balance["p_electric_gross"]
+    )
+    
+    # 9. Heat Rejection (CAS 26)
+    results["cas_26_cooling"] = cost_heat_rejection(thermal_mw)
+    
+    # 10. Special Materials (CAS 27)
+    # Beryllium, lithium, tritium inventory
+    results["cas_27_materials"] = 150  # M$ (breeder and tritium inventory)
+    
+    # 11. Pre-construction and Indirect Costs (CAS 10, 30, 40)
+    direct_costs = (
+        results["cas_21_total"] +
+        results["cas_22_total"] +
+        results["cas_23_turbine"] +
+        results["cas_24_electrical"] +
+        results["cas_26_cooling"] +
+        results["cas_27_materials"]
+    )
+    
+    results["cas_10_preconstruction"] = direct_costs * 0.05  # 5% for R&D, site prep
+    results["cas_30_indirect"] = direct_costs * 0.15  # 15% for construction mgmt, eng
+    results["cas_40_owner_costs"] = direct_costs * 0.10  # 10% owner costs
+    
+    # 12. Contingency (CAS 29)
+    # NOAK (Nth-of-a-kind) plant has lower contingency
+    is_noak = config.get("noak", True)
+    contingency_rate = 0.10 if is_noak else 0.20  # 10% NOAK, 20% FOAK
+    results["cas_29_contingency"] = direct_costs * contingency_rate
+    
+    # 13. Total Capital Cost (TCC)
+    results["total_capital_cost"] = (
+        results["cas_10_preconstruction"] +
+        results["cas_21_total"] +
+        results["cas_22_total"] +
+        results["cas_23_turbine"] +
+        results["cas_24_electrical"] +
+        results["cas_26_cooling"] +
+        results["cas_27_materials"] +
+        results["cas_29_contingency"] +
+        results["cas_30_indirect"] +
+        results["cas_40_owner_costs"]
+    )
+    
+    # 14. Total EPC Cost
+    # EPC typically excludes owner costs but includes everything else
+    results["total_epc_cost"] = results["total_capital_cost"] - results["cas_40_owner_costs"]
+    
+    # 15. Cost per kW metrics (convert M$ to $ by multiplying by 1e6)
+    net_power_mw = power_balance["p_electric_net"]
+    if net_power_mw > 0:
+        results["cost_per_kw_net"] = (results["total_capital_cost"] * 1e6) / (net_power_mw * 1000)
+        results["epc_per_kw_net"] = (results["total_epc_cost"] * 1e6) / (net_power_mw * 1000)
+    else:
+        results["cost_per_kw_net"] = float('inf')
+        results["epc_per_kw_net"] = float('inf')
+    
+    return results
+
+
+def format_cost_summary(results: Dict) -> str:
+    """
+    Format cost results into readable summary.
+    
+    Args:
+        results: Results from compute_total_epc_cost()
+    
+    Returns:
+        Formatted string summary
+    """
+    pb = results["power_balance"]
+    
+    summary = f"""
+=== Fusion Reactor Cost Summary ===
+
+Power Performance:
+  Fusion Power:        {pb['p_fusion']:.0f} MW
+  Thermal Power:       {pb['p_thermal']:.0f} MW
+  Gross Electric:      {pb['p_electric_gross']:.0f} MW
+  Net Electric:        {pb['p_electric_net']:.0f} MW
+  Q_eng:              {pb['q_eng']:.2f}
+
+Capital Costs (M$):
+  CAS 21 Buildings:         ${results['cas_21_total']:.0f}M
+  CAS 22 Reactor Equipment: ${results['cas_22_total']:.0f}M
+    - Reactor Core:         ${results['cas_2201']:.0f}M
+    - Magnets:             ${results['cas_2203']:.0f}M
+    - Heating:             ${results['heating_systems']:.0f}M
+    - Coolant:             ${results['coolant_system']:.0f}M
+  CAS 23 Turbine:          ${results['cas_23_turbine']:.0f}M
+  CAS 24 Electrical:       ${results['cas_24_electrical']:.0f}M
+  CAS 26 Cooling:          ${results['cas_26_cooling']:.0f}M
+  
+  Indirect & Contingency:  ${results['cas_29_contingency'] + results['cas_30_indirect']:.0f}M
+
+Total Capital Cost:       ${results['total_capital_cost']:.0f}M
+Total EPC Cost:           ${results['total_epc_cost']:.0f}M
+
+Cost per kW (net):        ${results['cost_per_kw_net']:.0f}/kW
+"""
+    
+    return summary

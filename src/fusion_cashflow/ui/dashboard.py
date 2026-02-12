@@ -158,42 +158,43 @@ def render_highlight_facts(outputs):
             return "N/A"
 
     html = f"""
+    <style>
+      .main-kpi {{ position:relative; display:inline-block; margin-right:30px; }}
+      .main-kpi .main-tip {{
+        visibility:hidden; opacity:0; transition:opacity 0.2s;
+        position:absolute; bottom:110%; left:50%; transform:translateX(-50%);
+        background:#001e3c; color:#ffffff; font-size:11px; font-weight:400;
+        padding:6px 10px; border-radius:6px; white-space:nowrap;
+        box-shadow:0 2px 8px rgba(0,0,0,0.3); z-index:10;
+        pointer-events:none;
+      }}
+      .main-kpi:hover .main-tip {{ visibility:visible; opacity:1; }}
+      .main-kpi .kpi-lbl {{
+        cursor:help; background:rgba(160,196,255,0.15); padding:2px 6px;
+        border-radius:4px; transition:background 0.2s;
+      }}
+      .main-kpi:hover .kpi-lbl {{ background:rgba(160,196,255,0.3); }}
+    </style>
     <div style='display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 800; white-space: nowrap; padding: 0 20px;'>
-        <div style='margin-right: 30px;'>
-            <span title='Levelized Cost of Energy - The cost per MWh to build and operate the power plant over its lifetime' 
-                  style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-                  onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-                <b>LCOE<sup>?</sup>:</b>
-            </span> 
+        <div class='main-kpi'>
+            <span class='kpi-lbl'><b>LCOE<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'> {fmt(lcoe_val, 'currency_detailed')} / MWh</span>
+            <div class='main-tip'>Levelized Cost of Energy &mdash; cost per MWh over plant lifetime</div>
         </div>
-        <div style='margin-right: 30px;'>
-            <span title='Internal Rate of Return - The discount rate that makes the NPV of all cash flows equal to zero' 
-                  style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-                  onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-                <b>IRR<sup>?</sup>:</b>
-            </span> 
+        <div class='main-kpi'>
+            <span class='kpi-lbl'><b>IRR<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'> {fmt(irr, 'percent')}</span>
+            <div class='main-tip'>Internal Rate of Return &mdash; discount rate making NPV = 0</div>
         </div>
-        <div style='margin-right: 30px;'>
-            <span title='Net Present Value - The present value of all future cash flows minus the initial investment' 
-                  style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-                  onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-                <b>NPV<sup>?</sup>:</b>
-            </span> 
+        <div class='main-kpi'>
+            <span class='kpi-lbl'><b>NPV<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'> {fmt(npv, 'currency')}</span>
+            <div class='main-tip'>Net Present Value &mdash; present value of all future cash flows minus investment</div>
         </div>
-        <div>
-            <span title='Total Project Payback Period - The time it takes for the cumulative unlevered cash flows to equal the total project investment (includes all costs, debt and equity)' 
-                  style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-                  onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-                <b>Payback<sup>?</sup>:</b>
-            </span> 
+        <div class='main-kpi' style='margin-right:0;'>
+            <span class='kpi-lbl'><b>Payback<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'> {fmt(payback, 'years')}</span>
+            <div class='main-tip'>Total project payback period &mdash; time for cumulative cash flows to equal investment</div>
         </div>
     </div>
     """
@@ -215,25 +216,34 @@ def render_dscr_metrics(outputs):
         return val
 
     html = f"""
+    <style>
+      .dscr-kpi {{ position:relative; display:inline-block; }}
+      .dscr-kpi .dscr-tip {{
+        visibility:hidden; opacity:0; transition:opacity 0.2s;
+        position:absolute; bottom:110%; left:50%; transform:translateX(-50%);
+        background:#001e3c; color:#ffffff; font-size:11px; font-weight:400;
+        padding:6px 10px; border-radius:6px; white-space:nowrap;
+        box-shadow:0 2px 8px rgba(0,0,0,0.3); z-index:10;
+        pointer-events:none;
+      }}
+      .dscr-kpi:hover .dscr-tip {{ visibility:visible; opacity:1; }}
+      .dscr-kpi .dscr-lbl {{
+        cursor:help; background:rgba(0,55,91,0.1); padding:2px 6px;
+        border-radius:4px; transition:background 0.2s;
+      }}
+      .dscr-kpi:hover .dscr-lbl {{ background:rgba(0,55,91,0.2); }}
+    </style>
     <div style='font-size: 14px; margin-bottom: 8px; color: #ffffff; font-weight: 600;'>DEBT SERVICE COVERAGE RATIO PROFILE</div>
     <div style='display: flex; gap: 24px;'>
-        <div>
-            <span title='Minimum Debt Service Coverage Ratio - The lowest ratio of Net Operating Income to debt service payments. Higher is better (>1.25 typically required)' 
-                  style='cursor: help; background: rgba(0, 55, 91, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(0, 55, 91, 0.2)'" 
-                  onmouseout="this.style.background='rgba(0, 55, 91, 0.1)'">
-                <b>Min DSCR<sup>?</sup>:</b>
-            </span> 
+        <div class='dscr-kpi'>
+            <span class='dscr-lbl'><b>Min DSCR<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'>{fmt(min_dscr, 'ratio')}</span>
+            <div class='dscr-tip'>Minimum DSCR &mdash; lowest NOI-to-debt-service ratio (&gt;1.25 typically required)</div>
         </div>
-        <div>
-            <span title='Average Debt Service Coverage Ratio - The average ratio of Net Operating Income to debt service payments over the loan term' 
-                  style='cursor: help; background: rgba(0, 55, 91, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-                  onmouseover="this.style.background='rgba(0, 55, 91, 0.2)'" 
-                  onmouseout="this.style.background='rgba(0, 55, 91, 0.1)'">
-                <b>Avg DSCR<sup>?</sup>:</b>
-            </span> 
+        <div class='dscr-kpi'>
+            <span class='dscr-lbl'><b>Avg DSCR<sup>?</sup>:</b></span>
             <span style='color:#ffffff;font-weight:800'>{fmt(avg_dscr, 'ratio')}</span>
+            <div class='dscr-tip'>Average DSCR &mdash; mean NOI-to-debt-service ratio over loan term</div>
         </div>
     </div>
     """
@@ -254,14 +264,29 @@ def render_equity_metrics(outputs):
         return val
 
     html = f"""
+    <style>
+      .eq-kpi {{ position:relative; display:inline-block; }}
+      .eq-kpi .eq-tip {{
+        visibility:hidden; opacity:0; transition:opacity 0.2s;
+        position:absolute; bottom:110%; left:50%; transform:translateX(-50%);
+        background:#001e3c; color:#ffffff; font-size:11px; font-weight:400;
+        padding:6px 10px; border-radius:6px; white-space:nowrap;
+        box-shadow:0 2px 8px rgba(0,0,0,0.3); z-index:10;
+        pointer-events:none;
+      }}
+      .eq-kpi:hover .eq-tip {{ visibility:visible; opacity:1; }}
+      .eq-kpi .eq-lbl {{
+        cursor:help; background:rgba(0,55,91,0.1); padding:2px 6px;
+        border-radius:4px; transition:background 0.2s;
+      }}
+      .eq-kpi:hover .eq-lbl {{ background:rgba(0,55,91,0.2); }}
+    </style>
     <div style='font-size: 14px; margin-bottom: 8px; color: #ffffff; font-weight: 600;'>CUMULATIVE CASHFLOW PERFORMANCE</div>
-    <span title='Equity Multiple - The ratio of cumulative distributions to initial equity investment. Shows total return on equity over project life' 
-          style='cursor: help; background: rgba(0, 55, 91, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-          onmouseover="this.style.background='rgba(0, 55, 91, 0.2)'" 
-          onmouseout="this.style.background='rgba(0, 55, 91, 0.1)'">
-        <b>Equity Multiple<sup>?</sup>:</b>
-    </span> 
-    <span style='color:#ffffff;font-weight:800'>{fmt(equity_mult, 'mult')}</span>
+    <div class='eq-kpi'>
+        <span class='eq-lbl'><b>Equity Multiple<sup>?</sup>:</b></span>
+        <span style='color:#ffffff;font-weight:800'>{fmt(equity_mult, 'mult')}</span>
+        <div class='eq-tip'>Equity Multiple &mdash; cumulative distributions / initial equity investment</div>
+    </div>
     """
     return html
 
@@ -940,7 +965,19 @@ def update_dashboard():
                           config.get("expert_coil_t", 1.0) +
                           config.get("expert_bio_shield_t", 1.0))
                 widgets["total_radius_display"].text = (
-                    f"<div style='margin:10px 0; font-weight:bold;'>Total Machine Radius: {total_r:.2f} m</div>")
+                    f"<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px; "
+                    f"font-family:Inter,Helvetica,Arial,sans-serif;'>"
+                    f"<span style='font-size:14px; font-weight:700; color:#00375b;'>Total Machine Radius</span>"
+                    f"<span style='font-size:20px; font-weight:800; color:#00375b;'>{total_r:.2f} m</span></div>")
+                # Update group subtotals
+                _g1_txt = f"Core: R\u2080 = {config.get('expert_major_radius_m',3):.1f} m, a = {config.get('expert_plasma_t',1.1):.1f} m"
+                widgets["mfe_group1_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>{_g1_txt}</div>"
+                _g2 = config.get('expert_vacuum_t',0.1)+config.get('expert_firstwall_t',0.02)+config.get('expert_blanket_t',0.8)+config.get('expert_reflector_t',0.2)
+                widgets["mfe_group2_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Inner build: {_g2:.2f} m</div>"
+                _g3 = config.get('expert_ht_shield_t',0.2)+config.get('expert_structure_t',0.2)+config.get('expert_gap_t',0.5)
+                widgets["mfe_group3_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Shielding: {_g3:.2f} m</div>"
+                _g4 = config.get('expert_vessel_t',0.2)+config.get('expert_gap2_t',0.5)+config.get('expert_lt_shield_t',0.3)+config.get('expert_coil_t',1.0)+config.get('expert_bio_shield_t',1.0)
+                widgets["mfe_group4_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Outer: {_g4:.2f} m</div>"
             else:  # IFE
                 outer_r = (config.get("expert_chamber_radius_m", 8) +
                           config.get("expert_firstwall_t_ife", 0.005) +
@@ -949,7 +986,10 @@ def update_dashboard():
                           config.get("expert_structure_t_ife", 0.2) +
                           config.get("expert_vessel_t_ife", 0.2))
                 widgets["outer_radius_display"].text = (
-                    f"<div style='margin:10px 0; font-weight:bold;'>Outer Vessel Radius: {outer_r:.2f} m</div>")
+                    f"<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px; "
+                    f"font-family:Inter,Helvetica,Arial,sans-serif;'>"
+                    f"<span style='font-size:14px; font-weight:700; color:#00375b;'>Outer Vessel Radius</span>"
+                    f"<span style='font-size:20px; font-weight:800; color:#00375b;'>{outer_r:.2f} m</span></div>")
             
     except Exception as e:
         import traceback
@@ -1143,24 +1183,33 @@ def toggle_reactor_type_visibility(attr, old, new):
     # Expert geometry sections
     use_expert = widgets["use_expert_geometry"].active
     widgets["mfe_geometry_header"].visible = is_mfe and use_expert
+    widgets["mfe_group1_header"].visible = is_mfe and use_expert
     widgets["expert_major_radius_m"].visible = is_mfe and use_expert
     widgets["expert_plasma_t"].visible = is_mfe and use_expert
     widgets["expert_elongation"].visible = is_mfe and use_expert
+    widgets["mfe_group1_subtotal"].visible = is_mfe and use_expert
+    widgets["mfe_group2_header"].visible = is_mfe and use_expert
     widgets["expert_vacuum_t"].visible = is_mfe and use_expert
     widgets["expert_firstwall_t"].visible = is_mfe and use_expert
     widgets["expert_blanket_t"].visible = is_mfe and use_expert
     widgets["expert_reflector_t"].visible = is_mfe and use_expert
+    widgets["mfe_group2_subtotal"].visible = is_mfe and use_expert
+    widgets["mfe_group3_header"].visible = is_mfe and use_expert
     widgets["expert_ht_shield_t"].visible = is_mfe and use_expert
     widgets["expert_structure_t"].visible = is_mfe and use_expert
     widgets["expert_gap_t"].visible = is_mfe and use_expert
+    widgets["mfe_group3_subtotal"].visible = is_mfe and use_expert
+    widgets["mfe_group4_header"].visible = is_mfe and use_expert
     widgets["expert_vessel_t"].visible = is_mfe and use_expert
     widgets["expert_gap2_t"].visible = is_mfe and use_expert
     widgets["expert_lt_shield_t"].visible = is_mfe and use_expert
     widgets["expert_coil_t"].visible = is_mfe and use_expert
     widgets["expert_bio_shield_t"].visible = is_mfe and use_expert
+    widgets["mfe_group4_subtotal"].visible = is_mfe and use_expert
     widgets["total_radius_display"].visible = is_mfe and use_expert
     
     widgets["ife_geometry_header"].visible = is_ife and use_expert
+    widgets["ife_group_header"].visible = is_ife and use_expert
     widgets["expert_chamber_radius_m"].visible = is_ife and use_expert
     widgets["expert_firstwall_t_ife"].visible = is_ife and use_expert
     widgets["expert_blanket_t_ife"].visible = is_ife and use_expert
@@ -1180,25 +1229,34 @@ def toggle_expert_geometry_visibility(attr, old, new):
     
     # MFE geometry
     widgets["mfe_geometry_header"].visible = is_mfe and new
+    widgets["mfe_group1_header"].visible = is_mfe and new
     widgets["expert_major_radius_m"].visible = is_mfe and new
     widgets["expert_plasma_t"].visible = is_mfe and new
     widgets["expert_elongation"].visible = is_mfe and new
+    widgets["mfe_group1_subtotal"].visible = is_mfe and new
+    widgets["mfe_group2_header"].visible = is_mfe and new
     widgets["expert_vacuum_t"].visible = is_mfe and new
     widgets["expert_firstwall_t"].visible = is_mfe and new
     widgets["expert_blanket_t"].visible = is_mfe and new
     widgets["expert_reflector_t"].visible = is_mfe and new
+    widgets["mfe_group2_subtotal"].visible = is_mfe and new
+    widgets["mfe_group3_header"].visible = is_mfe and new
     widgets["expert_ht_shield_t"].visible = is_mfe and new
     widgets["expert_structure_t"].visible = is_mfe and new
     widgets["expert_gap_t"].visible = is_mfe and new
+    widgets["mfe_group3_subtotal"].visible = is_mfe and new
+    widgets["mfe_group4_header"].visible = is_mfe and new
     widgets["expert_vessel_t"].visible = is_mfe and new
     widgets["expert_gap2_t"].visible = is_mfe and new
     widgets["expert_lt_shield_t"].visible = is_mfe and new
     widgets["expert_coil_t"].visible = is_mfe and new
     widgets["expert_bio_shield_t"].visible = is_mfe and new
+    widgets["mfe_group4_subtotal"].visible = is_mfe and new
     widgets["total_radius_display"].visible = is_mfe and new
     
     # IFE geometry
     widgets["ife_geometry_header"].visible = is_ife and new
+    widgets["ife_group_header"].visible = is_ife and new
     widgets["expert_chamber_radius_m"].visible = is_ife and new
     widgets["expert_firstwall_t_ife"].visible = is_ife and new
     widgets["expert_blanket_t_ife"].visible = is_ife and new
@@ -1539,17 +1597,17 @@ sidebar = column(
     widgets["target_gain"],
     
     # EPC Cost Integration
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Engineering, Procurement & Construction - The total cost to design, procure equipment, and build the power plant' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">EPC Cost Integration<sup>?</sup></span></h3>"),
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><style>.sb-tip-wrap{position:relative;display:inline-block}.sb-tip-wrap .sb-tip{visibility:hidden;opacity:0;transition:opacity .2s;position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#001e3c;color:#fff;font-size:11px;font-weight:400;padding:6px 10px;border-radius:6px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3);z-index:10;pointer-events:none}.sb-tip-wrap:hover .sb-tip{visibility:visible;opacity:1}.sb-tip-wrap .sb-lbl{cursor:help;background:rgba(160,196,255,.15);padding:2px 6px;border-radius:4px;transition:background .2s}.sb-tip-wrap:hover .sb-lbl{background:rgba(160,196,255,.3)}</style><span class='sb-tip-wrap'><span class='sb-lbl'>EPC Cost Integration<sup>?</sup></span><span class='sb-tip'>Total cost to design, procure equipment, and build the plant</span></span></h3>"),
     widgets["auto_epc_display"],
     
     # Q Engineering Integration
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Q Engineering - The energy amplification factor (fusion power out / heating power in). Higher Q means more efficient fusion reactions' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">Q Engineering Integration<sup>?</sup></span></h3>"),
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Q Engineering Integration<sup>?</sup></span><span class='sb-tip'>Energy amplification factor (fusion power out / heating power in)</span></span></h3>"),
     widgets["q_eng_mode"],
     widgets["calculated_q_eng_display"],
     widgets["manual_q_eng"],
     
     # Financial parameters
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Financial Parameters - Debt structure, interest rates, and loan terms that determine how the project is financed' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">Financial Parameters<sup>?</sup></span></h3>"),
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Financial Parameters<sup>?</sup></span><span class='sb-tip'>Debt structure, interest rates, and loan terms</span></span></h3>"),
     widgets["input_debt_pct"],
     widgets["cost_of_debt"],
     widgets["loan_rate"],
@@ -1558,7 +1616,7 @@ sidebar = column(
     widgets["grace_period_years"],
     
     # Cost parameters
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Cost Parameters - Additional capital expenses, contingencies, operations & maintenance costs, and electricity pricing' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">Cost Parameters<sup>?</sup></span></h3>"),
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Cost Parameters<sup>?</sup></span><span class='sb-tip'>CapEx, contingencies, O&amp;M costs, and electricity pricing</span></span></h3>"),
     widgets["extra_capex_pct"],
     widgets["project_contingency_pct"],
     widgets["process_contingency_pct"],
@@ -1567,7 +1625,7 @@ sidebar = column(
     widgets["electricity_price"],
     
     # Operations
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span title='Operations - Plant lifetime, depreciation, end-of-life costs, tax modeling, and operational ramp-up parameters' style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;' onmouseover=\"this.style.background='rgba(160, 196, 255, 0.2)'\" onmouseout=\"this.style.background='rgba(160, 196, 255, 0.1)'\">Operations<sup>?</sup></span></h3>"),
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Operations<sup>?</sup></span><span class='sb-tip'>Lifetime, depreciation, decommissioning, tax &amp; ramp-up</span></span></h3>"),
     widgets["dep_years"],
     widgets["salvage_value"],
     widgets["decommissioning_cost"],
@@ -1594,12 +1652,11 @@ sidebar = column(
 
 # --- Chart Explanation Divs ---
 annual_cf_explanation = Div(
-    text="""<div style='color: #a0c4ff; font-size: 14px; margin: 10px 0 5px 0; font-weight: 600; font-family: Inter, Helvetica, Arial, sans-serif;'>
-    <span title='Annual Cash Flow shows yearly money in and out. Unlevered = project-level before debt service. Levered = equity-level after debt payments' 
-          style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-          onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-          onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-        ANNUAL CASH FLOWS<sup>?</sup>
+    text="""<style>.cf-tip-wrap{position:relative;display:inline-block}.cf-tip-wrap .cf-tip{visibility:hidden;opacity:0;transition:opacity .2s;position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#001e3c;color:#fff;font-size:11px;font-weight:400;padding:6px 10px;border-radius:6px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3);z-index:10;pointer-events:none}.cf-tip-wrap:hover .cf-tip{visibility:visible;opacity:1}.cf-tip-wrap .cf-lbl{cursor:help;background:rgba(160,196,255,.15);padding:2px 6px;border-radius:4px;transition:background .2s}.cf-tip-wrap:hover .cf-lbl{background:rgba(160,196,255,.3)}</style>
+    <div style='color: #a0c4ff; font-size: 14px; margin: 10px 0 5px 0; font-weight: 600; font-family: Inter, Helvetica, Arial, sans-serif;'>
+    <span class='cf-tip-wrap'>
+        <span class='cf-lbl'>ANNUAL CASH FLOWS<sup>?</sup></span>
+        <span class='cf-tip'>Unlevered = project-level before debt. Levered = equity-level after debt payments</span>
     </span>
     </div>""",
     width=900
@@ -1607,11 +1664,9 @@ annual_cf_explanation = Div(
 
 cumulative_cf_explanation = Div(
     text="""<div style='color: #a0c4ff; font-size: 14px; margin: 20px 0 5px 0; font-weight: 600; font-family: Inter, Helvetica, Arial, sans-serif;'>
-    <span title='Cumulative Cash Flow tracks total money flow over time. When it crosses zero, the project has paid back its investment (payback point)' 
-          style='cursor: help; background: rgba(160, 196, 255, 0.1); padding: 2px 4px; border-radius: 4px; transition: background 0.2s;'
-          onmouseover="this.style.background='rgba(160, 196, 255, 0.2)'" 
-          onmouseout="this.style.background='rgba(160, 196, 255, 0.1)'">
-        CUMULATIVE CASH FLOWS<sup>?</sup>
+    <span class='cf-tip-wrap'>
+        <span class='cf-lbl'>CUMULATIVE CASH FLOWS<sup>?</sup></span>
+        <span class='cf-tip'>Total money flow over time &mdash; zero-crossing = payback point</span>
     </span>
     </div>""",
     width=900
@@ -1688,7 +1743,7 @@ else:
         )
     )
 
-costing_col = column(costing_panel, styles={'background': '#001e3c', 'border-radius': '16px', 'padding': '12px'})
+costing_col = column(costing_panel, styles={'background': '#f5f5f5', 'border-radius': '16px', 'padding': '12px'})
 costing_tab = TabPanel(child=costing_col, title="Cost Breakdown")
 
 
@@ -2034,8 +2089,16 @@ widgets["optimise_button"].on_click(run_optimiser)
 # --- Expert Config Tab Creation ---
 # Create expert geometry widgets
 widgets["expert_header"] = Div(
-    text="<h3 style='margin-bottom:15px; color:#ffffff;'>Expert Configuration</h3><p style='color:#a0c4ff;'>Override template-based geometry with custom radial build. <b style=\"color:#ffffff;\">All parameters must be specified together</b> - partial overrides not supported.</p>",
-    styles={"background": "#00375b", "padding": "18px 24px", "border-radius": "16px", "color": "#ffffff", "font-family": "Inter, Helvetica, Arial, sans-serif"},
+    text="""
+    <div style='font-family:Inter,Helvetica,Arial,sans-serif;'>
+        <h3 style='margin:0 0 8px 0; color:#ffffff; font-size:18px; font-weight:700;'>Expert Configuration</h3>
+        <p style='margin:0; color:rgba(255,255,255,0.8); font-size:13px; line-height:1.5;'>
+            Override template-based geometry with custom radial build.
+            <b style="color:#ffffff;">All parameters must be specified together</b> — partial overrides not supported.
+        </p>
+    </div>""",
+    styles={"background": "#00375b", "padding": "18px 24px", "border-radius": "16px", "color": "#ffffff",
+            "font-family": "Inter, Helvetica, Arial, sans-serif", "margin-bottom": "16px"},
 )
 
 widgets["use_expert_geometry"] = Checkbox(
@@ -2044,87 +2107,122 @@ widgets["use_expert_geometry"] = Checkbox(
 )
 
 widgets["geometry_mode_info"] = Div(
-    text="<div style='color:#a0c4ff; font-size:12px; margin:10px 0;'>When disabled, geometry auto-scales from reactor type and power level using proven templates.</div>",
+    text="<div style='color:#6b7280; font-size:12px; margin:8px 0 16px 0;'>When disabled, geometry auto-scales from reactor type and power level using proven templates.</div>",
 )
 
-# MFE Radial Build Section
+# --- MFE Card Styles ---
+_card_style = ("background:#fafafa; border:1px solid rgba(0,0,0,0.08); border-radius:12px; "
+               "padding:14px 20px; margin-bottom:12px; font-family:Inter,Helvetica,Arial,sans-serif;")
+_card_hdr = lambda title, subtitle: (
+    f"<div style='{_card_style}'>"
+    f"<div style='font-size:14px; font-weight:700; color:#00375b; margin-bottom:2px;'>{title}</div>"
+    f"<div style='font-size:11px; color:#6b7280;'>{subtitle}</div></div>"
+)
+
+# MFE Section Header
+_mfe_vis = config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False)
 widgets["mfe_geometry_header"] = Div(
-    text="<div style='font-size:16px; font-weight:bold; margin-top:20px; margin-bottom:10px; color:#ffffff;'>MFE Tokamak Radial Build</div>",
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False)
+    text="<div style='font-size:16px; font-weight:700; color:#00375b; margin:8px 0 4px 0; font-family:Inter,Helvetica,Arial,sans-serif;'>MFE Tokamak Radial Build</div>",
+    visible=_mfe_vis,
 )
 
-# MFE expert sliders (15 parameters)
-widgets["expert_major_radius_m"] = Slider(title="Major Radius R₀ (m)", start=2, end=10, value=config.get("expert_major_radius_m", 3), step=0.1, 
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_plasma_t"] = Slider(title="Plasma Thickness/Minor Radius (m)", start=0.5, end=3, value=config.get("expert_plasma_t", 1.1), step=0.1,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_elongation"] = Slider(title="Plasma Elongation κ", start=1.0, end=4.0, value=config.get("expert_elongation", 3.0), step=0.1,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_vacuum_t"] = Slider(title="Vacuum Gap Thickness (m)", start=0.05, end=0.5, value=config.get("expert_vacuum_t", 0.1), step=0.01,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_firstwall_t"] = Slider(title="First Wall Thickness (m)", start=0.005, end=0.05, value=config.get("expert_firstwall_t", 0.02), step=0.005,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_blanket_t"] = Slider(title="Blanket Thickness (m)", start=0.3, end=1.5, value=config.get("expert_blanket_t", 0.8), step=0.05,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_reflector_t"] = Slider(title="Reflector Thickness (m)", start=0.1, end=0.5, value=config.get("expert_reflector_t", 0.2), step=0.05,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_ht_shield_t"] = Slider(title="High-Temp Shield Thickness (m)", start=0.1, end=0.5, value=config.get("expert_ht_shield_t", 0.2), step=0.05,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_structure_t"] = Slider(title="Structure Thickness (m)", start=0.1, end=0.5, value=config.get("expert_structure_t", 0.2), step=0.05,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_gap_t"] = Slider(title="Maintenance Gap (m)", start=0.2, end=1.0, value=config.get("expert_gap_t", 0.5), step=0.05,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_vessel_t"] = Slider(title="Vacuum Vessel Thickness (m)", start=0.05, end=0.5, value=config.get("expert_vessel_t", 0.2), step=0.05,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_gap2_t"] = Slider(title="Secondary Gap (m)", start=0.2, end=1.0, value=config.get("expert_gap2_t", 0.5), step=0.05,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_lt_shield_t"] = Slider(title="Low-Temp Shield Thickness (m)", start=0.2, end=0.5, value=config.get("expert_lt_shield_t", 0.3), step=0.05,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_coil_t"] = Slider(title="TF Coil Thickness (m)", start=0.5, end=2.0, value=config.get("expert_coil_t", 1.0), step=0.1,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_bio_shield_t"] = Slider(title="Biological Shield Thickness (m)", start=0.5, end=2.0, value=config.get("expert_bio_shield_t", 1.0), step=0.1,
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False))
-
-# Calculate initial radius value
-initial_radius = (
-    config.get("expert_firstwall_t", 0.002) +
-    config.get("expert_blanket_t", 0.8) +
-    config.get("expert_shield_t", 0.6) +
-    config.get("expert_vv_t", 0.05) +
-    config.get("expert_gap_vv_tf", 0.1) +
-    config.get("expert_tf_coil_t", 0.6) +
-    config.get("expert_tf_case_t", 0.05) +
-    config.get("expert_dewar_t", 0.05) +
-    config.get("expert_bio_shield_t", 1.0)
+# --- Group 1: Core Plasma ---
+widgets["mfe_group1_header"] = Div(
+    text=_card_hdr("Core Plasma", "Plasma shape and major geometry"),
+    visible=_mfe_vis,
 )
+widgets["expert_major_radius_m"] = Slider(title="Major Radius R\u2080 (m)", start=2, end=10, value=config.get("expert_major_radius_m", 3), step=0.1, visible=_mfe_vis)
+widgets["expert_plasma_t"] = Slider(title="Plasma Thickness / Minor Radius (m)", start=0.5, end=3, value=config.get("expert_plasma_t", 1.1), step=0.1, visible=_mfe_vis)
+widgets["expert_elongation"] = Slider(title="Plasma Elongation \u03ba", start=1.0, end=4.0, value=config.get("expert_elongation", 3.0), step=0.1, visible=_mfe_vis)
+widgets["mfe_group1_subtotal"] = Div(
+    text=f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Core: R\u2080 = {config.get('expert_major_radius_m',3):.1f} m, a = {config.get('expert_plasma_t',1.1):.1f} m</div>",
+    visible=_mfe_vis,
+)
+
+# --- Group 2: Inner Components ---
+widgets["mfe_group2_header"] = Div(
+    text=_card_hdr("Inner Components", "First wall through reflector"),
+    visible=_mfe_vis,
+)
+widgets["expert_vacuum_t"] = Slider(title="Vacuum Gap (m)", start=0.05, end=0.5, value=config.get("expert_vacuum_t", 0.1), step=0.01, visible=_mfe_vis)
+widgets["expert_firstwall_t"] = Slider(title="First Wall (m)", start=0.005, end=0.05, value=config.get("expert_firstwall_t", 0.02), step=0.005, visible=_mfe_vis)
+widgets["expert_blanket_t"] = Slider(title="Blanket (m)", start=0.3, end=1.5, value=config.get("expert_blanket_t", 0.8), step=0.05, visible=_mfe_vis)
+widgets["expert_reflector_t"] = Slider(title="Reflector (m)", start=0.1, end=0.5, value=config.get("expert_reflector_t", 0.2), step=0.05, visible=_mfe_vis)
+_g2_sum = sum(config.get(k, d) for k, d in [("expert_vacuum_t",0.1),("expert_firstwall_t",0.02),("expert_blanket_t",0.8),("expert_reflector_t",0.2)])
+widgets["mfe_group2_subtotal"] = Div(
+    text=f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Inner build: {_g2_sum:.2f} m</div>",
+    visible=_mfe_vis,
+)
+
+# --- Group 3: Shielding & Structure ---
+widgets["mfe_group3_header"] = Div(
+    text=_card_hdr("Shielding & Structure", "Shields, structural support, maintenance gap"),
+    visible=_mfe_vis,
+)
+widgets["expert_ht_shield_t"] = Slider(title="High-Temp Shield (m)", start=0.1, end=0.5, value=config.get("expert_ht_shield_t", 0.2), step=0.05, visible=_mfe_vis)
+widgets["expert_structure_t"] = Slider(title="Structure (m)", start=0.1, end=0.5, value=config.get("expert_structure_t", 0.2), step=0.05, visible=_mfe_vis)
+widgets["expert_gap_t"] = Slider(title="Maintenance Gap (m)", start=0.2, end=1.0, value=config.get("expert_gap_t", 0.5), step=0.05, visible=_mfe_vis)
+_g3_sum = sum(config.get(k, d) for k, d in [("expert_ht_shield_t",0.2),("expert_structure_t",0.2),("expert_gap_t",0.5)])
+widgets["mfe_group3_subtotal"] = Div(
+    text=f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Shielding: {_g3_sum:.2f} m</div>",
+    visible=_mfe_vis,
+)
+
+# --- Group 4: Outer Shell ---
+widgets["mfe_group4_header"] = Div(
+    text=_card_hdr("Outer Shell", "Vessel, coil, and biological shield"),
+    visible=_mfe_vis,
+)
+widgets["expert_vessel_t"] = Slider(title="Vacuum Vessel (m)", start=0.05, end=0.5, value=config.get("expert_vessel_t", 0.2), step=0.05, visible=_mfe_vis)
+widgets["expert_gap2_t"] = Slider(title="Secondary Gap (m)", start=0.2, end=1.0, value=config.get("expert_gap2_t", 0.5), step=0.05, visible=_mfe_vis)
+widgets["expert_lt_shield_t"] = Slider(title="Low-Temp Shield (m)", start=0.2, end=0.5, value=config.get("expert_lt_shield_t", 0.3), step=0.05, visible=_mfe_vis)
+widgets["expert_coil_t"] = Slider(title="TF Coil (m)", start=0.5, end=2.0, value=config.get("expert_coil_t", 1.0), step=0.1, visible=_mfe_vis)
+widgets["expert_bio_shield_t"] = Slider(title="Biological Shield (m)", start=0.5, end=2.0, value=config.get("expert_bio_shield_t", 1.0), step=0.1, visible=_mfe_vis)
+_g4_sum = sum(config.get(k, d) for k, d in [("expert_vessel_t",0.2),("expert_gap2_t",0.5),("expert_lt_shield_t",0.3),("expert_coil_t",1.0),("expert_bio_shield_t",1.0)])
+widgets["mfe_group4_subtotal"] = Div(
+    text=f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Outer: {_g4_sum:.2f} m</div>",
+    visible=_mfe_vis,
+)
+
+# Total radius KPI
+_total_r = config.get("expert_major_radius_m", 3) + config.get("expert_plasma_t", 1.1) + _g2_sum + _g3_sum + _g4_sum
 widgets["total_radius_display"] = Div(
-    text=f"<div style='margin:10px 0; font-weight:bold; color:#ffffff;'>Total Machine Radius: {initial_radius:.3f} m</div>",
-    visible=config.get("reactor_type", "MFE Tokamak") == "MFE Tokamak" and config.get("use_expert_geometry", False)
+    text=f"""<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px;
+                font-family:Inter,Helvetica,Arial,sans-serif;'>
+        <span style='font-size:14px; font-weight:700; color:#00375b;'>Total Machine Radius</span>
+        <span style='font-size:20px; font-weight:800; color:#00375b;'>{_total_r:.2f} m</span>
+    </div>""",
+    styles={"background": "#e0f2fe", "border-radius": "12px", "border": "1px solid #bae6fd", "margin-top": "4px"},
+    visible=_mfe_vis,
 )
 
-# IFE Geometry Section
+# --- IFE Geometry Section ---
+_ife_vis = config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False)
 widgets["ife_geometry_header"] = Div(
-    text="<div style='font-size:16px; font-weight:bold; margin-top:20px; margin-bottom:10px; color:#ffffff;'>IFE Spherical Chamber Build</div>",
-    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False)
+    text="<div style='font-size:16px; font-weight:700; color:#00375b; margin:8px 0 4px 0; font-family:Inter,Helvetica,Arial,sans-serif;'>IFE Spherical Chamber Build</div>",
+    visible=_ife_vis,
 )
 
-# IFE expert sliders (6 parameters)
-widgets["expert_chamber_radius_m"] = Slider(title="Inner Chamber Radius (m)", start=5, end=15, value=config.get("expert_chamber_radius_m", 8), step=0.5,
-    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_firstwall_t_ife"] = Slider(title="First Wall Thickness IFE (m)", start=0.002, end=0.01, value=config.get("expert_firstwall_t_ife", 0.005), step=0.001,
-    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_blanket_t_ife"] = Slider(title="Blanket Thickness (m)", start=0.3, end=1.0, value=config.get("expert_blanket_t_ife", 0.5), step=0.05,
-    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_reflector_t_ife"] = Slider(title="Reflector Thickness (m)", start=0.05, end=0.2, value=config.get("expert_reflector_t_ife", 0.1), step=0.01,
-    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_structure_t_ife"] = Slider(title="Structure Thickness (m)", start=0.1, end=0.3, value=config.get("expert_structure_t_ife", 0.2), step=0.05,
-    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
-widgets["expert_vessel_t_ife"] = Slider(title="Vessel Thickness (m)", start=0.1, end=0.3, value=config.get("expert_vessel_t_ife", 0.2), step=0.05,
-    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False))
+widgets["ife_group_header"] = Div(
+    text=_card_hdr("Chamber Components", "Inner chamber through vessel wall"),
+    visible=_ife_vis,
+)
+widgets["expert_chamber_radius_m"] = Slider(title="Inner Chamber Radius (m)", start=5, end=15, value=config.get("expert_chamber_radius_m", 8), step=0.5, visible=_ife_vis)
+widgets["expert_firstwall_t_ife"] = Slider(title="First Wall (m)", start=0.002, end=0.01, value=config.get("expert_firstwall_t_ife", 0.005), step=0.001, visible=_ife_vis)
+widgets["expert_blanket_t_ife"] = Slider(title="Blanket (m)", start=0.3, end=1.0, value=config.get("expert_blanket_t_ife", 0.5), step=0.05, visible=_ife_vis)
+widgets["expert_reflector_t_ife"] = Slider(title="Reflector (m)", start=0.05, end=0.2, value=config.get("expert_reflector_t_ife", 0.1), step=0.01, visible=_ife_vis)
+widgets["expert_structure_t_ife"] = Slider(title="Structure (m)", start=0.1, end=0.3, value=config.get("expert_structure_t_ife", 0.2), step=0.05, visible=_ife_vis)
+widgets["expert_vessel_t_ife"] = Slider(title="Vessel (m)", start=0.1, end=0.3, value=config.get("expert_vessel_t_ife", 0.2), step=0.05, visible=_ife_vis)
 
+_ife_outer = sum(config.get(k, d) for k, d in [("expert_chamber_radius_m",8),("expert_firstwall_t_ife",0.005),("expert_blanket_t_ife",0.5),("expert_reflector_t_ife",0.1),("expert_structure_t_ife",0.2),("expert_vessel_t_ife",0.2)])
 widgets["outer_radius_display"] = Div(
-    text="<div style='margin:10px 0; font-weight:bold; color:#ffffff;'>Outer Vessel Radius: Calculating...</div>",
-    visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak" and config.get("use_expert_geometry", False)
+    text=f"""<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px;
+                font-family:Inter,Helvetica,Arial,sans-serif;'>
+        <span style='font-size:14px; font-weight:700; color:#00375b;'>Outer Vessel Radius</span>
+        <span style='font-size:20px; font-weight:800; color:#00375b;'>{_ife_outer:.2f} m</span>
+    </div>""",
+    styles={"background": "#e0f2fe", "border-radius": "12px", "border": "1px solid #bae6fd", "margin-top": "4px"},
+    visible=_ife_vis,
 )
 
 # Create Expert Config column layout
@@ -2132,26 +2230,35 @@ expert_col = column(
     widgets["expert_header"],
     widgets["use_expert_geometry"],
     widgets["geometry_mode_info"],
-    # MFE Geometry
+    # MFE Geometry — grouped cards
     widgets["mfe_geometry_header"],
+    widgets["mfe_group1_header"],
     widgets["expert_major_radius_m"],
     widgets["expert_plasma_t"],
     widgets["expert_elongation"],
+    widgets["mfe_group1_subtotal"],
+    widgets["mfe_group2_header"],
     widgets["expert_vacuum_t"],
     widgets["expert_firstwall_t"],
     widgets["expert_blanket_t"],
     widgets["expert_reflector_t"],
+    widgets["mfe_group2_subtotal"],
+    widgets["mfe_group3_header"],
     widgets["expert_ht_shield_t"],
     widgets["expert_structure_t"],
     widgets["expert_gap_t"],
+    widgets["mfe_group3_subtotal"],
+    widgets["mfe_group4_header"],
     widgets["expert_vessel_t"],
     widgets["expert_gap2_t"],
     widgets["expert_lt_shield_t"],
     widgets["expert_coil_t"],
     widgets["expert_bio_shield_t"],
+    widgets["mfe_group4_subtotal"],
     widgets["total_radius_display"],
     # IFE Geometry
     widgets["ife_geometry_header"],
+    widgets["ife_group_header"],
     widgets["expert_chamber_radius_m"],
     widgets["expert_firstwall_t_ife"],
     widgets["expert_blanket_t_ife"],
@@ -2159,7 +2266,9 @@ expert_col = column(
     widgets["expert_structure_t_ife"],
     widgets["expert_vessel_t_ife"],
     widgets["outer_radius_display"],
-    styles={'background': '#001e3c', 'border-radius': '16px', 'padding': '24px', 'color': '#ffffff', 'font-family': 'Inter, Helvetica, Arial, sans-serif'},
+    styles={'background': '#ffffff', 'border-radius': '16px', 'padding': '24px',
+            'max-width': '960px', 'margin': '0 auto',
+            'font-family': 'Inter, Helvetica, Arial, sans-serif'},
 )
 
 # Create Expert Config Tab

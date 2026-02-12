@@ -13,6 +13,12 @@ jinja2>=3.0.0
 # Scientific computing
 scipy>=1.9.0
 
+# Optimization (required for dashboard optimization features)
+nevergrad>=1.0.0
+
+# NOTE: PyFECONS previously required but now integrated directly
+# Costing algorithms extracted and embedded in src/fusion_cashflow/costing/
+
 # Development and testing (optional)
 pytest>=7.0.0
 hypothesis>=6.0.0

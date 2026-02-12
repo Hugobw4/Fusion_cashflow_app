@@ -1,0 +1,230 @@
+"""
+Reactor equipment costing (CAS 22.01 - Core Components).
+Extracted from PyFECONS cas220101_reactor_equipment.py
+"""
+from typing import Dict
+from .geometry import ReactorGeometry
+from .materials import get_material_cost, get_first_wall_material, get_structure_material, get_breeder_material
+
+
+def cost_first_wall_and_blanket(config: Dict, volumes: Dict[str, float]) -> Dict[str, float]:
+    """
+    Calculate first wall and blanket costs (CAS 220101).
+    
+    Args:
+        config: Configuration with materials and specifications
+        volumes: Component volumes from geometry calculation
+    
+    Returns:
+        Dictionary with cost breakdown in million USD
+    """
+    costs = {}
+    
+    # First wall cost
+    fw_material = config.get("first_wall_material", "Tungsten")
+    fw_volume = volumes.get("firstwall", 10.0)  # m³
+    
+    # Map material name to code
+    fw_map = {"Tungsten": "W", "Beryllium": "Be", "Liquid Lithium": "Li", "FLiBe": "FliBe"}
+    fw_mat_code = fw_map.get(fw_material, "W")
+    
+    # Cost with manufacturing factor
+    fw_cost_usd = get_material_cost(fw_mat_code, volume_m3=fw_volume)
+    costs["firstwall"] = fw_cost_usd / 1e6  # Convert to million USD
+    
+    # Blanket cost
+    blanket_material = config.get("blanket_type", "Solid Breeder (Li2TiO3)")
+    blanket_volume = volumes.get("blanket", 100.0)  # m³
+    
+    # Determine breeder material
+    if "Li2TiO3" in blanket_material:
+        breeder_code = "Li2TiO3"
+    elif "Li4SiO4" in blanket_material:
+        breeder_code = "Li4SiO4"
+    elif "Flowing Liquid" in blanket_material or "PbLi" in blanket_material:
+        breeder_code = "PbLi"
+    else:
+        breeder_code = None  # Aneutronic, no breeder
+    
+    if breeder_code:
+        blanket_cost_usd = get_material_cost(breeder_code, volume_m3=blanket_volume)
+        costs["blanket"] = blanket_cost_usd / 1e6
+    else:
+        costs["blanket"] = 0.0
+    
+    # Structure cost (steel framework)
+    structure_material = config.get("structure_material", "Stainless Steel (SS)")
+    structure_volume = volumes.get("structure", 50.0)  # m³
+    
+    struct_map = {
+        "Stainless Steel (SS)": "SS",
+        "Ferritic Steel (FMS)": "FMS",
+        "ODS Steel": "ODS",
+        "Vanadium": "V"
+    }
+    struct_code = struct_map.get(structure_material, "SS")
+    
+    structure_cost_usd = get_material_cost(struct_code, volume_m3=structure_volume)
+    costs["structure"] = structure_cost_usd / 1e6
+    
+    # Reflector/shield (neutron multiplier and gamma shield)
+    reflector_volume = volumes.get("reflector", 80.0) + volumes.get("ht_shield", 60.0)
+    
+    # Beryllium multiplier + Lead shield composite
+    be_fraction = 0.3
+    pb_fraction = 0.5
+    steel_fraction = 0.2
+    
+    be_cost = get_material_cost("Be", volume_m3=reflector_volume * be_fraction)
+    pb_cost = get_material_cost("Pb", volume_m3=reflector_volume * pb_fraction)
+    steel_cost = get_material_cost("SS", volume_m3=reflector_volume * steel_fraction)
+    
+    costs["shield"] = (be_cost + pb_cost + steel_cost) / 1e6
+    
+    # Vacuum vessel
+    vessel_volume = volumes.get("vessel", 40.0)
+    vessel_cost_usd = get_material_cost("SS", volume_m3=vessel_volume)
+    costs["vessel"] = vessel_cost_usd / 1e6
+    
+    # Total reactor equipment cost
+    costs["total_reactor_equipment"] = sum(v for k, v in costs.items() 
+                                           if k != "total_reactor_equipment")
+    
+    return costs
+
+
+def cost_divertor(config: Dict, volumes: Dict[str, float]) -> float:
+    """
+    Calculate divertor cost (CAS 220108) - MFE only.
+    
+    Args:
+        config: Configuration with divertor specs
+        volumes: Component volumes
+    
+    Returns:
+        Divertor cost in million USD
+    """
+    reactor_type = config.get("reactor_type", "MFE")
+    
+    if reactor_type != "MFE":
+        return 0.0  # IFE doesn't have divertor
+    
+    # Divertor sizing based on plasma-facing area and power flux
+    major_radius = config.get("major_radius_m", 3.0)
+    plasma_thickness = config.get("plasma_t", 1.1)
+    
+    # Simplified divertor volume estimate
+    divertor_volume = 2 * math.pi * major_radius * plasma_thickness * 0.5  # m³
+    
+    # Tungsten armor with complexity factor
+    complexity_factor = 3.0  # High-heat-flux component complexity
+    divertor_cost_usd = get_material_cost("W", volume_m3=divertor_volume) * complexity_factor
+    
+    return divertor_cost_usd / 1e6
+
+
+def cost_vacuum_system(config: Dict, volumes: Dict[str, float]) -> float:
+    """
+    Calculate vacuum system cost (CAS 220106).
+    
+    Args:
+        config: Configuration
+        volumes: Component volumes
+    
+    Returns:
+        Vacuum system cost in million USD
+    """
+    # Vacuum pumps: scale with chamber volume
+    chamber_volume = volumes.get("vacuum", 100.0) + volumes.get("plasma", 50.0)
+    
+    # Cost per m³ of vacuum volume (includes pumps, instrumentation, controls)
+    cost_per_m3 = 0.05  # Million $/m³ (includes high-vacuum equipment)
+    
+    vacuum_cost = chamber_volume * cost_per_m3
+    
+    # Add turbo pumps and cryopumps
+    n_pumps = max(10, int(chamber_volume / 20))  # 1 pump per 20 m³
+    pump_cost_each = 0.04  # Million $ per high-capacity pump
+    
+    total_cost = vacuum_cost + (n_pumps * pump_cost_each)
+    
+    return total_cost
+
+
+def cost_power_supplies(config: Dict) -> float:
+    """
+    Calculate power supply costs (CAS 220107).
+    
+    Args:
+        config: Configuration with power requirements
+    
+    Returns:
+        Power supply cost in million USD
+    """
+    reactor_type = config.get("reactor_type", "MFE")
+    
+    if reactor_type == "MFE":
+        # Magnet power supplies (coil energization, PF control)
+        # Rule of thumb: $1/W for pulsed power
+        aux_power_mw = config.get("auxiliary_power_mw", 50)
+        magnet_power_mw = 100  # Typical for tokamak PF coils
+        
+        ps_cost = (aux_power_mw + magnet_power_mw) * 1.0  # $1M per MW of supply capacity
+        
+    else:  # IFE
+        # Laser/driver power supplies (capacitor banks, pulse forming networks)
+        driver_energy_mj = config.get("driver_energy_mj", 2.0)
+        
+        # Capacitor banks: ~$100/J stored
+        ps_cost = driver_energy_mj * 1e6 * 100 / 1e6  # Convert to M$
+        ps_cost *= 1.2  # Add pulse forming network and controls
+    
+    return ps_cost
+
+
+import math
+
+
+def estimate_total_reactor_cost(config: Dict) -> Dict[str, float]:
+    """
+    Estimate complete reactor equipment costs.
+    
+    Args:
+        config: Complete reactor configuration dictionary
+    
+    Returns:
+        Breakdown of all reactor equipment costs in million USD
+    """
+    # Calculate geometry first
+    radial_build = {
+        "major_radius_m": config.get("major_radius_m", 3.0),
+        "plasma_t": config.get("plasma_t", 1.1),
+        "vacuum_t": config.get("vacuum_t", 0.1),
+        "firstwall_t": config.get("firstwall_t", 0.02),
+        "blanket_t": config.get("blanket_t", 0.8),
+        "reflector_t": config.get("reflector_t", 0.2),
+        "ht_shield_t": config.get("ht_shield_t", 0.2),
+        "structure_t": config.get("structure_t", 0.2),
+        "gap_t": config.get("gap_t", 0.5),
+        "vessel_t": config.get("vessel_t", 0.2),
+        "coil_t": config.get("coil_t", 1.0),
+        "elongation": config.get("elongation", 3.0)
+    }
+    
+    reactor_type = config.get("reactor_type", "MFE")
+    geom = ReactorGeometry(radial_build, reactor_type)
+    volumes = geom.calculate_volumes()
+    
+    # Calculate individual cost components
+    costs = cost_first_wall_and_blanket(config, volumes)
+    costs["divertor"] = cost_divertor(config, volumes)
+    costs["vacuum_system"] = cost_vacuum_system(config, volumes)
+    costs["power_supplies"] = cost_power_supplies(config)
+    
+    # Total CAS 22.01 (reactor equipment)
+    costs["cas_2201_total"] = (costs["total_reactor_equipment"] + 
+                                costs["divertor"] + 
+                                costs["vacuum_system"] + 
+                                costs["power_supplies"])
+    
+    return costs

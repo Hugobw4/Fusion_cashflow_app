@@ -1,0 +1,208 @@
+"""
+Reactor geometry and volume calculations.
+Extracted from PyFECONS cas220101_reactor_equipment.py
+"""
+import math
+from typing import Dict, Tuple
+
+
+class ReactorGeometry:
+    """Calculate component volumes from radial build."""
+    
+    def __init__(self, radial_build: Dict[str, float], reactor_type: str = "MFE"):
+        """
+        Initialize geometry calculator.
+        
+        Args:
+            radial_build: Dictionary with thickness values in meters:
+                - major_radius_m (or axis_t for MFE)
+                - plasma_t, vacuum_t, firstwall_t, blanket_t, reflector_t
+                - ht_shield_t, structure_t, gap_t, vessel_t, coil_t, etc.
+            reactor_type: "MFE" for magnetic fusion, "IFE" for inertial fusion
+        """
+        self.build = radial_build
+        self.reactor_type = reactor_type
+        self.elongation = radial_build.get("elongation", 3.0)  # Tokamak elongation factor
+        
+    def calculate_volumes(self) -> Dict[str, float]:
+        """
+        Calculate volumes for all reactor components.
+        
+        Returns:
+            Dictionary mapping component names to volumes in m³
+        """
+        if self.reactor_type == "MFE":
+            return self._calculate_mfe_tokamak_volumes()
+        elif self.reactor_type == "IFE":
+            return self._calculate_ife_volumes()
+        else:
+            raise ValueError(f"Unknown reactor type: {self.reactor_type}")
+    
+    def _calculate_mfe_tokamak_volumes(self) -> Dict[str, float]:
+        """Calculate volumes for toroidal tokamak geometry."""
+        volumes = {}
+        
+        # Extract radial build (from center outward)
+        axis_t = self.build.get("major_radius_m", 3.0)  # Major radius
+        plasma_t = self.build.get("plasma_t", 1.1)
+        vacuum_t = self.build.get("vacuum_t", 0.1)
+        firstwall_t = self.build.get("firstwall_t", 0.02)
+        blanket_t = self.build.get("blanket_t", 0.8)
+        reflector_t = self.build.get("reflector_t", 0.2)
+        ht_shield_t = self.build.get("ht_shield_t", 0.2)
+        structure_t = self.build.get("structure_t", 0.2)
+        gap_t = self.build.get("gap_t", 0.5)
+        vessel_t = self.build.get("vessel_t", 0.2)
+        coil_t = self.build.get("coil_t", 1.0)
+        gap2_t = self.build.get("gap2_t", 0.5)
+        lt_shield_t = self.build.get("lt_shield_t", 0.3)
+        bioshield_t = self.build.get("bioshield_t", 1.0)
+        
+        # Calculate inner and outer radii for each component
+        # Start from plasma center
+        plasma_ir = axis_t
+        plasma_or = plasma_ir + plasma_t
+        
+        vacuum_ir = plasma_or
+        vacuum_or = vacuum_ir + vacuum_t
+        
+        firstwall_ir = vacuum_or
+        firstwall_or = firstwall_ir + firstwall_t
+        
+        blanket_ir = firstwall_or
+        blanket_or = blanket_ir + blanket_t
+        
+        reflector_ir = blanket_or
+        reflector_or = reflector_ir + reflector_t
+        
+        ht_shield_ir = reflector_or
+        ht_shield_or = ht_shield_ir + ht_shield_t
+        
+        structure_ir = ht_shield_or
+        structure_or = structure_ir + structure_t
+        
+        gap_ir = structure_or
+        gap_or = gap_ir + gap_t
+        
+        vessel_ir = gap_or
+        vessel_or = vessel_ir + vessel_t
+        
+        coil_ir = vessel_or
+        coil_or = coil_ir + coil_t
+        
+        # Calculate volumes using hollow torus formula: V = 2π²R(r_outer² - r_inner²)
+        # With elongation factor for non-circular cross-sections
+        def torus_volume(R: float, r_inner: float, r_outer: float) -> float:
+            """Volume of hollow torus with elongation."""
+            return self.elongation * 2 * math.pi**2 * R * (r_outer**2 - r_inner**2)
+        
+        volumes["plasma"] = torus_volume(axis_t, 0, plasma_t)
+        volumes["vacuum"] = torus_volume(axis_t, plasma_or, vacuum_or) 
+        volumes["firstwall"] = torus_volume(axis_t, firstwall_ir, firstwall_or)
+        volumes["blanket"] = torus_volume(axis_t, blanket_ir, blanket_or)
+        volumes["reflector"] = torus_volume(axis_t, reflector_ir, reflector_or)
+        volumes["ht_shield"] = torus_volume(axis_t, ht_shield_ir, ht_shield_or)
+        volumes["structure"] = torus_volume(axis_t, structure_ir, structure_or)
+        volumes["gap"] = torus_volume(axis_t, gap_ir, gap_or)
+        volumes["vessel"] = torus_volume(axis_t, vessel_ir, vessel_or)
+        volumes["coil_volume"] = torus_volume(axis_t, coil_ir, coil_or)
+        
+        # Store radii for reference
+        volumes["_radii"] = {
+            "plasma_ir": plasma_ir, "plasma_or": plasma_or,
+            "firstwall_ir": firstwall_ir, "firstwall_or": firstwall_or,
+            "blanket_ir": blanket_ir, "blanket_or": blanket_or,
+            "vessel_ir": vessel_ir, "vessel_or": vessel_or,
+        }
+        
+        return volumes
+    
+    def _calculate_ife_volumes(self) -> Dict[str, float]:
+        """Calculate volumes for spherical IFE chamber."""
+        volumes = {}
+        
+        # IFE uses spherical geometry with chamber radius
+        chamber_radius = self.build.get("chamber_radius_m", 8.0)
+        firstwall_t = self.build.get("firstwall_t", 0.005)
+        blanket_t = self.build.get("blanket_t", 0.5)
+        reflector_t = self.build.get("reflector_t", 0.1)
+        structure_t = self.build.get("structure_t", 0.2)
+        vessel_t = self.build.get("vessel_t", 0.2)
+        
+        # Calculate spherical shell volumes: V = (4/3)π(r_outer³ - r_inner³)
+        def sphere_shell_volume(r_inner: float, r_outer: float) -> float:
+            return (4/3) * math.pi * (r_outer**3 - r_inner**3)
+        
+        plasma_r = 0.0001  # Tiny plasma
+        vacuum_r = chamber_radius
+        firstwall_ir = vacuum_r
+        firstwall_or = firstwall_ir + firstwall_t
+        blanket_ir = firstwall_or
+        blanket_or = blanket_ir + blanket_t
+        reflector_ir = blanket_or
+        reflector_or = reflector_ir + reflector_t
+        structure_ir = reflector_or
+        structure_or = structure_ir + structure_t
+        vessel_ir = structure_or
+        vessel_or = vessel_ir + vessel_t
+        
+        volumes["plasma"] = (4/3) * math.pi * plasma_r**3
+        volumes["vacuum"] = (4/3) * math.pi * vacuum_r**3
+        volumes["firstwall"] = sphere_shell_volume(firstwall_ir, firstwall_or)
+        volumes["blanket"] = sphere_shell_volume(blanket_ir, blanket_or)
+        volumes["reflector"] = sphere_shell_volume(reflector_ir, reflector_or)
+        volumes["structure"] = sphere_shell_volume(structure_ir, structure_or)
+        volumes["vessel"] = sphere_shell_volume(vessel_ir, vessel_or)
+        
+        return volumes
+    
+    def scale_geometry_by_power(self, power_ratio: float) -> Dict[str, float]:
+        """
+        Scale geometry based on power ratio using ~R³ scaling.
+        
+        Args:
+            power_ratio: New power / reference power
+        
+        Returns:
+            Scaled radial build dictionary
+        """
+        # Fusion power scales approximately as major radius cubed
+        # P ~ R³, so R ~ P^(1/3)
+        scale_factor = power_ratio ** (1/3)
+        
+        scaled_build = {}
+        for key, value in self.build.items():
+            if key in ["major_radius_m", "axis_t"] or key.endswith("_t") or key.endswith("_m"):
+                # Scale all length dimensions
+                scaled_build[key] = value * scale_factor
+            else:
+                # Keep non-dimensional parameters
+                scaled_build[key] = value
+        
+        return scaled_build
+
+
+def calculate_surface_areas(volumes: Dict[str, float], radii: Dict[str, float] = None) -> Dict[str, float]:
+    """
+    Calculate surface areas from volumes (for heat transfer calculations).
+    
+    Args:
+        volumes: Component volumes from calculate_volumes()
+        radii: Optional radii dict from geometry calculation
+    
+    Returns:
+        Dictionary of surface areas in m²
+    """
+    areas = {}
+    
+    # For first wall, use stored radius if available
+    if radii and "firstwall_or" in radii:
+        # Toroidal surface area: A = 4π²Rr
+        R = radii.get("plasma_ir", 3.0)
+        r = radii["firstwall_or"] - radii["firstwall_ir"]
+        areas["firstwall"] = 4 * math.pi**2 * R * r
+    else:
+        # Estimate from volume assuming thin shell
+        areas["firstwall"] = (volumes["firstwall"] / 0.02) * 0.5  # Rough approximation
+    
+    return areas

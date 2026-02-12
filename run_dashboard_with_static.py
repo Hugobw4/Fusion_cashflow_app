@@ -20,8 +20,15 @@ def main():
     # Path to static files
     static_path = os.path.join(current_dir, "src", "fusion_cashflow", "ui", "static")
     
+    # Get allowed WebSocket origins from environment or use wildcard for deployment
+    # For production, set BOKEH_ALLOW_WS_ORIGIN to specific domain (e.g., "myapp.example.com:5011")
+    allowed_origins = os.environ.get('BOKEH_ALLOW_WS_ORIGIN', '*').split(',')
+    if allowed_origins == ['*']:
+        print("Warning: Allowing WebSocket connections from ANY origin. Set BOKEH_ALLOW_WS_ORIGIN for production.")
+    
     print(f"Dashboard path: {dashboard_path}")
     print(f"Static files path: {static_path}")
+    print(f"Allowed WebSocket origins: {allowed_origins}")
     
     # Check if static directory exists
     if not os.path.exists(static_path):
@@ -31,9 +38,9 @@ def main():
     # Check if logo exists
     logo_path = os.path.join(static_path, "logo.png")
     if os.path.exists(logo_path):
-        print(f"✅ Logo found at: {logo_path}")
+        print(f"Logo found at: {logo_path}")
     else:
-        print(f"❌ Logo not found at: {logo_path}")
+        print(f"Logo not found at: {logo_path}")
         return
     
     # Create the Bokeh server with static file serving
@@ -58,15 +65,15 @@ def main():
         # Create server with custom static file handler to avoid conflicts
         server = Server({'/dashboard': app}, 
                        port=5011,
-                       allow_websocket_origin=["localhost:5011"],
+                       allow_websocket_origin=allowed_origins,
                        extra_patterns=[
                            # Serve our assets at /assets/ to avoid conflicts with Bokeh's /static/
                            (r"/assets/(.*)", NoCacheStaticFileHandler, {"path": static_path}),
                        ])
         
-        print("✅ Starting Bokeh server with static file serving...")
-        print("📂 Static files served from:", static_path, "at /assets/")
-        print("🌐 Dashboard URL: http://localhost:5011/dashboard")
+        print("Starting Bokeh server with static file serving...")
+        print("Static files served from:", static_path, "at /assets/")
+        print("Dashboard URL: http://localhost:5011/dashboard")
         
         server.start()
         server.io_loop.add_callback(server.show, "/dashboard")

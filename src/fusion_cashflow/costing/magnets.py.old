@@ -1,0 +1,199 @@
+"""
+Magnet system costing (CAS 220103).
+Extracted from PyFECONS cas220103_coils.py and magnet calculations.
+"""
+import math
+from typing import Dict, List
+from .materials import MATERIALS
+
+
+def cost_hts_rebco_magnets(config: Dict, volumes: Dict[str, float]) -> Dict[str, float]:
+    """
+    Calculate HTS REBCO tape magnet costs.
+    
+    Args:
+        config: Configuration with magnet specifications:
+            - major_radius_m: Tokamak major radius
+            - toroidal_field_tesla: Peak field at coil
+            - n_tf_coils: Number of toroidal field coils
+            - tape_width_m: REBCO tape width (default 0.004 m = 4mm)
+            - coil_thickness_m: Radial thickness of TF coil
+        volumes: Component volumes (includes coil_volume)
+    
+    Returns:
+        Dictionary with magnet cost breakdown in million USD
+    """
+    costs = {}
+    
+    # Extract parameters
+    major_radius = config.get("major_radius_m", 3.0)
+    b_field = config.get("toroidal_field_tesla", 12.0)
+    n_tf = config.get("n_tf_coils", 12)
+    tape_width = config.get("tape_width_m", 0.004)  # 4 mm standard
+    coil_thickness = config.get("coil_thickness_m", 0.25)
+    
+    # Get REBCO tape properties
+    rebco = MATERIALS["REBCO"]
+    cost_per_kam = rebco["cost_per_kam"]  # $/kA·m
+    j_tape = rebco["critical_current_density"]  # A/mm²
+    tape_t = rebco["tape_thickness_m"]
+    
+    # Calculate current per tape (I = J × A)
+    tape_area_mm2 = tape_width * 1000 * tape_t * 1000  # Convert to mm²
+    current_per_tape_A = j_tape * tape_area_mm2
+    current_per_tape_kA = current_per_tape_A / 1000
+    
+    # TF coil dimensions
+    # Each TF coil is a elongated D-shape wrapping around the plasma
+    plasma_minor_radius = config.get("plasma_t", 1.1)
+    coil_inner_radius = major_radius + plasma_minor_radius + 1.5  # Clearance for blanket/shield
+    coil_height = major_radius * 2.5  # Vertical extent
+    
+    # Approximate coil perimeter (one TF coil path length)
+    coil_perimeter = 2 * math.pi * coil_inner_radius + 2 * coil_height
+    
+    # Total conductor length (all TF coils)
+    tf_conductor_length_m = coil_perimeter * n_tf
+    
+    # Calculate required ampere-turns for field
+    # B·r = μ₀·n·I (approximate)
+    # For tokamak TF: B = μ₀·N·I / (2πR)
+    # Rearrange: N·I = B·2πR / μ₀
+    mu_0 = 4 * math.pi * 1e-7  # H/m
+    ampere_turns_required = (b_field * 2 * math.pi * major_radius) / mu_0
+    
+    # Number of turns per TF coil
+    turns_per_coil = ampere_turns_required / (n_tf * current_per_tape_kA * 1000)
+    
+    # Total tape length (accounting for stacking in radial thickness)
+    # Each layer adds one turn path
+    layers_radial = int(coil_thickness / tape_t)
+    total_tape_length_km = tf_conductor_length_m * turns_per_coil * n_tf / 1000
+    
+    # Conductor cost (tape only)
+    conductor_cost_kam = total_tape_length_km * current_per_tape_kA  # kA·km = kA·m * 1000
+    costs["tf_conductor"] = (conductor_cost_kam * cost_per_kam) / 1e6  # M$
+    
+    # Structural support (steel case, support structure)
+    struct_factor = config.get("magnet_struct_factor", 0.5)  # 50% of conductor cost
+    costs["tf_structure"] = costs["tf_conductor"] * struct_factor
+    
+    # Manufacturing and assembly
+    mfr_factor = config.get("magnet_mfr_factor", 5.0)  # Complex winding, insulation
+    costs["tf_manufacturing"] = costs["tf_conductor"] * (mfr_factor - 1)
+    
+    # PF (Poloidal Field) and CS (Central Solenoid) coils
+    # Rough estimate: 30% of TF cost for tokamaks
+    costs["pf_coils"] = (costs["tf_conductor"] + costs["tf_structure"]) * 0.3
+    
+    # Cryogenic system for HTS (cooling to 20-40K)
+    # Scales with magnet mass and cooling power
+    coil_volume = volumes.get("coil_volume", 200.0)  # m³
+    coil_mass_kg = coil_volume * 7000  # Assume average density with steel structure
+    
+    cryo_cost_per_kg = 0.002  # $2000/kg for HTS cryo system (M$/kg)
+    costs["cryogenic"] = coil_mass_kg * cryo_cost_per_kg / 1e6
+    
+    # Total magnet system cost
+    costs["total_magnets"] = sum(v for k, v in costs.items() if k != "total_magnets")
+    
+    return costs
+
+
+def cost_copper_magnets(config: Dict) -> float:
+    """
+    Calculate resistive copper magnet costs (for comparison or pulsed systems).
+    
+    Args:
+        config: Magnet configuration
+    
+    Returns:
+        Cost in million USD
+    """
+    # Copper magnets are much cheaper but have high operating cost
+    # Rough estimate: 1/10th the capital cost of HTS but 10x operating cost
+    
+    major_radius = config.get("major_radius_m", 3.0)
+    b_field = config.get("toroidal_field_tesla", 5.0)  # Lower field for copper
+    
+    # Conductor volume estimate
+    conductor_volume = major_radius**2 * b_field * 0.5  # m³ (rough scaling)
+    
+    # Copper cost
+    copper_cost = get_material_cost("Cu", volume_m3=conductor_volume)
+    
+    # Manufacturing factor (simpler than HTS)
+    mfr_factor = 2.0
+    
+    total_cost = copper_cost * mfr_factor / 1e6
+    
+    return total_cost
+
+
+def cost_lts_magnets(config: Dict) -> float:
+    """
+    Calculate LTS (Low-Temperature Superconductor) magnet costs.
+    NbTi or Nb3Sn cooled to 4K.
+    
+    Args:
+        config: Magnet configuration
+    
+    Returns:
+        Cost in million USD
+    """
+    # LTS requires more expensive cryogenics (liquid helium at 4K)
+    # but conductor is cheaper than HTS
+    
+    major_radius = config.get("major_radius_m", 3.0)
+    b_field = config.get("toroidal_field_tesla", 12.0)
+    
+    # Use Nb3Sn properties
+    nb3sn = MATERIALS["Nb3Sn"]
+    cost_per_kam = nb3sn["cost_per_kam"]
+    
+    # Similar calculation to HTS but with 4K cryo penalty
+    # Rough estimate: 70% of HTS conductor cost, but 3x cryo cost
+    
+    hts_cost_dict = cost_hts_rebco_magnets(config, {})
+    conductor_cost = hts_cost_dict["tf_conductor"] * 0.7
+    structure_cost = hts_cost_dict["tf_structure"]
+    cryo_cost = hts_cost_dict["cryogenic"] * 3.0  # 4K is much more expensive
+    
+    total_cost = conductor_cost + structure_cost + cryo_cost
+    
+    return total_cost
+
+
+def estimate_magnet_cost(config: Dict, volumes: Dict[str, float]) -> Dict[str, float]:
+    """
+    Estimate total magnet system cost based on technology choice.
+    
+    Args:
+        config: Configuration with magnet_technology specified
+        volumes: Component volumes
+    
+    Returns:
+        Magnet cost breakdown
+    """
+    reactor_type = config.get("reactor_type", "MFE")
+    
+    if reactor_type != "MFE":
+        # IFE doesn't have magnetic confinement
+        return {"total_magnets": 0.0}
+    
+    magnet_tech = config.get("magnet_technology", "HTS REBCO")
+    
+    if "HTS" in magnet_tech or "REBCO" in magnet_tech:
+        return cost_hts_rebco_magnets(config, volumes)
+    elif "Copper" in magnet_tech:
+        cost = cost_copper_magnets(config)
+        return {"total_magnets": cost, "tf_conductor": cost * 0.7, "tf_structure": cost * 0.3}
+    elif "LTS" in magnet_tech or "NbTi" in magnet_tech or "Nb3Sn" in magnet_tech:
+        cost = cost_lts_magnets(config)
+        return {"total_magnets": cost, "tf_conductor": cost * 0.5, "cryogenic": cost * 0.3}
+    else:
+        # Default to HTS
+        return cost_hts_rebco_magnets(config, volumes)
+
+
+from .materials import get_material_cost
