@@ -83,7 +83,7 @@ financial_metrics_div = Div(
 # --- DSCR Metrics (for DSCR chart) ---
 dscr_metrics_div = Div(
     text="",
-    width=600,
+    sizing_mode="stretch_width",
     styles={
         "background": "#00375b",
         "border-radius": "12px",
@@ -95,13 +95,14 @@ dscr_metrics_div = Div(
         "border": "1px solid #e0e0e0",
         "color": "#ffffff",
         "font-family": "Inter, Helvetica, Arial, sans-serif",
+        "overflow": "visible",
     },
 )
 
 # --- Equity Metrics (for cumulative cashflow chart) ---
 equity_metrics_div = Div(
     text="",
-    width=600,
+    sizing_mode="stretch_width",
     styles={
         "background": "#00375b",
         "border-radius": "12px",
@@ -1663,7 +1664,8 @@ annual_cf_explanation = Div(
 )
 
 cumulative_cf_explanation = Div(
-    text="""<div style='color: #a0c4ff; font-size: 14px; margin: 20px 0 5px 0; font-weight: 600; font-family: Inter, Helvetica, Arial, sans-serif;'>
+    text="""<style>.cf-tip-wrap{position:relative;display:inline-block}.cf-tip-wrap .cf-tip{visibility:hidden;opacity:0;transition:opacity .2s;position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#001e3c;color:#fff;font-size:11px;font-weight:400;padding:6px 10px;border-radius:6px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3);z-index:10;pointer-events:none}.cf-tip-wrap:hover .cf-tip{visibility:visible;opacity:1}.cf-tip-wrap .cf-lbl{cursor:help;background:rgba(160,196,255,.15);padding:2px 6px;border-radius:4px;transition:background .2s}.cf-tip-wrap:hover .cf-lbl{background:rgba(160,196,255,.3)}</style>
+    <div style='color: #a0c4ff; font-size: 14px; margin: 20px 0 5px 0; font-weight: 600; font-family: Inter, Helvetica, Arial, sans-serif;'>
     <span class='cf-tip-wrap'>
         <span class='cf-lbl'>CUMULATIVE CASH FLOWS<sup>?</sup></span>
         <span class='cf-tip'>Total money flow over time &mdash; zero-crossing = payback point</span>
@@ -1700,7 +1702,7 @@ sens_fig = placeholder_fig
 sens_plot_container = column(sens_fig, sizing_mode="stretch_width", styles=grey_container_style)
 sens_col = column(
     Div(
-        text="<h3 style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Sensitivity Analysis</h3><p style='color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif;'>Click the button to recompute sensitivity analysis with current inputs.</p>"
+        text="<h3 style='color:#00375b; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'>Sensitivity Analysis</h3><p style='color:#333333; font-family:Inter, Helvetica, Arial, sans-serif;'>Click the button to recompute sensitivity analysis with current inputs.</p>"
     ),
     row(
         Button(
@@ -1713,6 +1715,7 @@ sens_col = column(
         Spacer(width=20),  # Add some spacing between buttons
     ),
     sens_plot_container,
+    styles={'max-width': '92%'},
 )
 sens_tab = TabPanel(child=sens_col, title="Sensitivity Analysis")
 
@@ -2267,7 +2270,7 @@ expert_col = column(
     widgets["expert_vessel_t_ife"],
     widgets["outer_radius_display"],
     styles={'background': '#ffffff', 'border-radius': '16px', 'padding': '24px',
-            'max-width': '92%', 'margin': '0 auto',
+            'max-width': '92%',
             'font-family': 'Inter, Helvetica, Arial, sans-serif'},
 )
 
