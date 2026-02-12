@@ -493,14 +493,6 @@ def make_widgets(config):
     widgets["input_debt_pct"] = Slider(
         title="Debt %", start=0.0, end=1.0, value=config["input_debt_pct"], step=0.01, format="0%"
     )
-    widgets["cost_of_debt"] = Slider(
-        title="Cost of Debt",
-        start=0.0,
-        end=0.2,
-        value=config["cost_of_debt"],
-        step=0.001,
-        format="0.0%",
-    )
     widgets["loan_rate"] = Slider(
         title="Loan Rate", start=0.0, end=0.2, value=config["loan_rate"], step=0.001, format="0.0%"
     )
@@ -657,12 +649,15 @@ def make_widgets(config):
         visible=config.get("reactor_type", "MFE Tokamak") != "MFE Tokamak"
     )
     
-    # EPC Cost Control Toggle - REMOVED (now always calculated)
-    # widgets["override_epc"] = Checkbox(
-    #     label="Manual EPC Cost Override", active=config.get("override_epc", False)
-    # )
-    # Total EPC Cost Slider - REMOVED (now always calculated from physics)
-    # widgets["total_epc_cost"] = Slider(...)
+    # ===== EPC OVERRIDE =====
+    widgets["override_epc"] = Checkbox(
+        label="Manual EPC Override", active=config.get("override_epc", False)
+    )
+    widgets["override_epc_value"] = TextInput(
+        title="Override EPC Cost ($)",
+        value=str(int(config.get("override_epc_value", 5000000000))),
+        visible=config.get("override_epc", False),
+    )
     
     # ===== Q ENGINEERING SECTION (Updated to Calculated/Manual mode) =====
     widgets["q_eng_mode"] = Select(
@@ -787,6 +782,28 @@ def make_widgets(config):
         step=0.01,
     )
     
+    # ===== INDUSTRIAL HEAT SALES =====
+    widgets["enable_heat_sales"] = Checkbox(
+        label="Enable Industrial Heat Sales", active=config.get("enable_heat_sales", False)
+    )
+    widgets["heat_sales_fraction"] = Slider(
+        title="Heat Sales Fraction",
+        start=0.0,
+        end=0.50,
+        value=config.get("heat_sales_fraction", 0.10),
+        step=0.01,
+        format="0%",
+        visible=config.get("enable_heat_sales", False),
+    )
+    widgets["heat_price_per_mwh_th"] = Slider(
+        title="Heat Price ($/MWh_th)",
+        start=5,
+        end=100,
+        value=config.get("heat_price_per_mwh_th", 30),
+        step=1,
+        visible=config.get("enable_heat_sales", False),
+    )
+    
     # Optimization widgets
     widgets["optimise_target"] = Select(
         title="Target metric",
@@ -856,6 +873,13 @@ def get_config_from_widgets(widgets):
     if "tape_width_m" in config:
         config["tape_width_m_actual"] = config["tape_width_m"] / 1000.0  # mm to m
     
+    # Parse override_epc_value from TextInput string to float
+    if "override_epc_value" in config and isinstance(config["override_epc_value"], str):
+        try:
+            config["override_epc_value"] = float(config["override_epc_value"])
+        except ValueError:
+            config["override_epc_value"] = 5_000_000_000
+    
     return config
 
 
@@ -870,105 +894,118 @@ def update_dashboard():
     
     # Calculate values using new costing system
     try:
-        from fusion_cashflow.core.power_to_epc import compute_epc
-        from fusion_cashflow.costing import compute_total_epc_cost
+        if config.get("override_epc", False):
+            # Manual EPC override — skip costing, show override value
+            override_val = config.get("override_epc_value", 5_000_000_000)
+            widgets["auto_epc_display"].text = (
+                f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+                f"<b>EPC Cost (Manual):</b> <span style='color:#FFC107;'>${override_val/1e9:.2f} B</span></div>")
+            widgets["calculated_q_eng_display"].text = (
+                f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+                f"<b>Q_eng:</b> <span style='color:#FFC107;'>Manual mode</span></div>")
+            widgets["net_electric_power_mw"].text = (
+                f"<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+                f"<b>Net Electric Output (MW):</b> <span style='color:#FFC107;'>Manual mode</span></div>")
+        else:
+            from fusion_cashflow.core.power_to_epc import compute_epc
+            from fusion_cashflow.costing import compute_total_epc_cost
+            
+            # Get costing results
+            epc_result = compute_epc(config)
         
-        # Get costing results
-        epc_result = compute_epc(config)
-        
-        # Feed costing P_net back into config for cashflow engine
-        p_net_from_costing = epc_result.get("power_balance", {}).get("p_net", 400)
-        config["net_electric_power_mw"] = p_net_from_costing
-        
-        # Update Net Electric Output display
-        p_net_color = "#4CAF50" if p_net_from_costing > 100 else "#FF5252"
-        widgets["net_electric_power_mw"].text = (
-            f"<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
-            f"<b>Net Electric Output (MW):</b> <span style='color:{p_net_color};'>{p_net_from_costing:.0f}</span></div>")
-        
-        # Update Q_eng display
-        q_eng_value = epc_result.get("power_balance", {}).get("q_eng", 0)
-        q_color = "#4CAF50" if q_eng_value > 1.5 else ("#FFC107" if q_eng_value > 1.0 else "#FF5252")
-        widgets["calculated_q_eng_display"].text = (
-            f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
-            f"<b>Calculated Q_eng:</b> <span style='color:{q_color};'>{q_eng_value:.2f}</span></div>")
-        
-        # Update EPC display
-        auto_epc_cost = epc_result.get("total_epc", 0)
-        auto_epc_per_kw = epc_result.get("epc_per_kw", 0)
-        widgets["auto_epc_display"].text = (
-            f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
-            f"<b>Total EPC Cost:</b> ${auto_epc_cost/1e9:.2f} B "
-            f"(${auto_epc_per_kw:,} / kW)</div>")
-        
-        # Update derived heating power display
-        p_heating_derived = config.get("auxiliary_power_mw", 50)
-        widgets["derived_heating_power"].text = (
-            f"<div style='color:#aaa; font-size:13px; margin:2px 0;'>Derived Heating Power: {p_heating_derived:.1f} MW</div>")
-        
-        # Update material cost preview
-        # Sum of firstwall + blanket + structure + shield from detailed result
-        detailed = epc_result.get("detailed_result", {})
-        cas22_details = detailed.get("CAS 22 - Reactor Equipment", {})
-        material_cost = (
-            cas22_details.get("First Wall", 0) +
-            cas22_details.get("Blanket", 0) +
-            cas22_details.get("Shield", 0)
-        )
-        widgets["material_cost_preview"].text = (
-            f"<div style='color:#aaa; font-size:12px; margin:5px 0;'>Estimated material cost: ${material_cost/1e6:.1f}M</div>")
-        
-        # Update magnet cost preview (MFE only)
-        if config.get("reactor_type") == "MFE Tokamak":
+            # Feed costing P_net back into config for cashflow engine
+            p_net_from_costing = epc_result.get("power_balance", {}).get("p_net", 400)
+            config["net_electric_power_mw"] = p_net_from_costing
+            
+            # Update Net Electric Output display
+            p_net_color = "#4CAF50" if p_net_from_costing > 100 else "#FF5252"
+            widgets["net_electric_power_mw"].text = (
+                f"<div style='margin-bottom:10px; color:#ffffff; font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+                f"<b>Net Electric Output (MW):</b> <span style='color:{p_net_color};'>{p_net_from_costing:.0f}</span></div>")
+            
+            # Update Q_eng display
+            q_eng_value = epc_result.get("power_balance", {}).get("q_eng", 0)
+            q_color = "#4CAF50" if q_eng_value > 1.5 else ("#FFC107" if q_eng_value > 1.0 else "#FF5252")
+            widgets["calculated_q_eng_display"].text = (
+                f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+                f"<b>Calculated Q_eng:</b> <span style='color:{q_color};'>{q_eng_value:.2f}</span></div>")
+            
+            # Update EPC display
+            auto_epc_cost = epc_result.get("total_epc", 0)
+            auto_epc_per_kw = epc_result.get("epc_per_kw", 0)
+            widgets["auto_epc_display"].text = (
+                f"<div style='margin-bottom:10px;color:#ffffff;font-size:18px; font-weight:800; font-family:Inter, Helvetica, Arial, sans-serif;'>"
+                f"<b>Total EPC Cost:</b> ${auto_epc_cost/1e9:.2f} B "
+                f"(${auto_epc_per_kw:,} / kW)</div>")
+            
+            # Update derived heating power display
+            p_heating_derived = config.get("auxiliary_power_mw", 50)
+            widgets["derived_heating_power"].text = (
+                f"<div style='color:#aaa; font-size:13px; margin:2px 0;'>Derived Heating Power: {p_heating_derived:.1f} MW</div>")
+            
+            # Update material cost preview
+            # Sum of firstwall + blanket + structure + shield from detailed result
             detailed = epc_result.get("detailed_result", {})
-            cas22 = detailed.get("CAS 22 - Reactor Equipment", {})
-            magnet_cost = cas22.get("Magnets", 0)
-            widgets["magnet_cost_preview"].text = (
-                f"<div style='color:#aaa; font-size:12px; margin:5px 0;'>Estimated magnet cost: ${magnet_cost/1e6:.1f}M</div>")
-        
-        # Update expert geometry displays
-        if config.get("use_expert_geometry"):
+            cas22_details = detailed.get("CAS 22 - Reactor Equipment", {})
+            material_cost = (
+                cas22_details.get("First Wall", 0) +
+                cas22_details.get("Blanket", 0) +
+                cas22_details.get("Shield", 0)
+            )
+            widgets["material_cost_preview"].text = (
+                f"<div style='color:#aaa; font-size:12px; margin:5px 0;'>Estimated material cost: ${material_cost/1e6:.1f}M</div>")
+            
+            # Update magnet cost preview (MFE only)
             if config.get("reactor_type") == "MFE Tokamak":
-                total_r = (config.get("expert_major_radius_m", 3) + 
-                          config.get("expert_plasma_t", 1.1) +
-                          config.get("expert_vacuum_t", 0.1) +
-                          config.get("expert_firstwall_t", 0.02) +
-                          config.get("expert_blanket_t", 0.8) +
-                          config.get("expert_reflector_t", 0.2) +
-                          config.get("expert_ht_shield_t", 0.2) +
-                          config.get("expert_structure_t", 0.2) +
-                          config.get("expert_gap_t", 0.5) +
-                          config.get("expert_vessel_t", 0.2) +
-                          config.get("expert_gap2_t", 0.5) +
-                          config.get("expert_lt_shield_t", 0.3) +
-                          config.get("expert_coil_t", 1.0) +
-                          config.get("expert_bio_shield_t", 1.0))
-                widgets["total_radius_display"].text = (
-                    f"<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px; "
-                    f"font-family:Inter,Helvetica,Arial,sans-serif;'>"
-                    f"<span style='font-size:14px; font-weight:700; color:#00375b;'>Total Machine Radius</span>"
-                    f"<span style='font-size:20px; font-weight:800; color:#00375b;'>{total_r:.2f} m</span></div>")
-                # Update group subtotals
-                _g1_txt = f"Core: R\u2080 = {config.get('expert_major_radius_m',3):.1f} m, a = {config.get('expert_plasma_t',1.1):.1f} m"
-                widgets["mfe_group1_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>{_g1_txt}</div>"
-                _g2 = config.get('expert_vacuum_t',0.1)+config.get('expert_firstwall_t',0.02)+config.get('expert_blanket_t',0.8)+config.get('expert_reflector_t',0.2)
-                widgets["mfe_group2_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Inner build: {_g2:.2f} m</div>"
-                _g3 = config.get('expert_ht_shield_t',0.2)+config.get('expert_structure_t',0.2)+config.get('expert_gap_t',0.5)
-                widgets["mfe_group3_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Shielding: {_g3:.2f} m</div>"
-                _g4 = config.get('expert_vessel_t',0.2)+config.get('expert_gap2_t',0.5)+config.get('expert_lt_shield_t',0.3)+config.get('expert_coil_t',1.0)+config.get('expert_bio_shield_t',1.0)
-                widgets["mfe_group4_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Outer: {_g4:.2f} m</div>"
-            else:  # IFE
-                outer_r = (config.get("expert_chamber_radius_m", 8) +
-                          config.get("expert_firstwall_t_ife", 0.005) +
-                          config.get("expert_blanket_t_ife", 0.5) +
-                          config.get("expert_reflector_t_ife", 0.1) +
-                          config.get("expert_structure_t_ife", 0.2) +
-                          config.get("expert_vessel_t_ife", 0.2))
-                widgets["outer_radius_display"].text = (
-                    f"<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px; "
-                    f"font-family:Inter,Helvetica,Arial,sans-serif;'>"
-                    f"<span style='font-size:14px; font-weight:700; color:#00375b;'>Outer Vessel Radius</span>"
-                    f"<span style='font-size:20px; font-weight:800; color:#00375b;'>{outer_r:.2f} m</span></div>")
+                detailed = epc_result.get("detailed_result", {})
+                cas22 = detailed.get("CAS 22 - Reactor Equipment", {})
+                magnet_cost = cas22.get("Magnets", 0)
+                widgets["magnet_cost_preview"].text = (
+                    f"<div style='color:#aaa; font-size:12px; margin:5px 0;'>Estimated magnet cost: ${magnet_cost/1e6:.1f}M</div>")
+            
+            # Update expert geometry displays
+            if config.get("use_expert_geometry"):
+                if config.get("reactor_type") == "MFE Tokamak":
+                    total_r = (config.get("expert_major_radius_m", 3) + 
+                              config.get("expert_plasma_t", 1.1) +
+                              config.get("expert_vacuum_t", 0.1) +
+                              config.get("expert_firstwall_t", 0.02) +
+                              config.get("expert_blanket_t", 0.8) +
+                              config.get("expert_reflector_t", 0.2) +
+                              config.get("expert_ht_shield_t", 0.2) +
+                              config.get("expert_structure_t", 0.2) +
+                              config.get("expert_gap_t", 0.5) +
+                              config.get("expert_vessel_t", 0.2) +
+                              config.get("expert_gap2_t", 0.5) +
+                              config.get("expert_lt_shield_t", 0.3) +
+                              config.get("expert_coil_t", 1.0) +
+                              config.get("expert_bio_shield_t", 1.0))
+                    widgets["total_radius_display"].text = (
+                        f"<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px; "
+                        f"font-family:Inter,Helvetica,Arial,sans-serif;'>"
+                        f"<span style='font-size:14px; font-weight:700; color:#00375b;'>Total Machine Radius</span>"
+                        f"<span style='font-size:20px; font-weight:800; color:#00375b;'>{total_r:.2f} m</span></div>")
+                    # Update group subtotals
+                    _g1_txt = f"Core: R\u2080 = {config.get('expert_major_radius_m',3):.1f} m, a = {config.get('expert_plasma_t',1.1):.1f} m"
+                    widgets["mfe_group1_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>{_g1_txt}</div>"
+                    _g2 = config.get('expert_vacuum_t',0.1)+config.get('expert_firstwall_t',0.02)+config.get('expert_blanket_t',0.8)+config.get('expert_reflector_t',0.2)
+                    widgets["mfe_group2_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Inner build: {_g2:.2f} m</div>"
+                    _g3 = config.get('expert_ht_shield_t',0.2)+config.get('expert_structure_t',0.2)+config.get('expert_gap_t',0.5)
+                    widgets["mfe_group3_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Shielding: {_g3:.2f} m</div>"
+                    _g4 = config.get('expert_vessel_t',0.2)+config.get('expert_gap2_t',0.5)+config.get('expert_lt_shield_t',0.3)+config.get('expert_coil_t',1.0)+config.get('expert_bio_shield_t',1.0)
+                    widgets["mfe_group4_subtotal"].text = f"<div style='font-size:11px; color:#6b7280; text-align:right; margin:-4px 0 8px 0;'>Outer: {_g4:.2f} m</div>"
+                else:  # IFE
+                    outer_r = (config.get("expert_chamber_radius_m", 8) +
+                              config.get("expert_firstwall_t_ife", 0.005) +
+                              config.get("expert_blanket_t_ife", 0.5) +
+                              config.get("expert_reflector_t_ife", 0.1) +
+                              config.get("expert_structure_t_ife", 0.2) +
+                              config.get("expert_vessel_t_ife", 0.2))
+                    widgets["outer_radius_display"].text = (
+                        f"<div style='display:flex; justify-content:space-between; align-items:center; padding:12px 20px; "
+                        f"font-family:Inter,Helvetica,Arial,sans-serif;'>"
+                        f"<span style='font-size:14px; font-weight:700; color:#00375b;'>Outer Vessel Radius</span>"
+                        f"<span style='font-size:20px; font-weight:800; color:#00375b;'>{outer_r:.2f} m</span></div>")
             
     except Exception as e:
         import traceback
@@ -1125,9 +1162,13 @@ widgets["reactor_type"].on_change("value", update_config_based_on_reactor_type)
 
 # --- EPC and Q Engineering Visibility Toggle Functions ---
 def toggle_epc_slider_visibility(attr, old, new):
-    """Show/hide the manual EPC cost slider based on override checkbox."""
-    # Note: EPC override removed, this function kept for compatibility
-    pass
+    """Show/hide the manual EPC override text input based on checkbox."""
+    widgets["override_epc_value"].visible = new
+
+def toggle_heat_sales_visibility(attr, old, new):
+    """Show/hide the heat sales sliders based on checkbox."""
+    widgets["heat_sales_fraction"].visible = new
+    widgets["heat_price_per_mwh_th"].visible = new
 
 def toggle_q_eng_slider_visibility(attr, old, new):
     """Show/hide the manual Q Engineering slider based on q_eng_mode."""
@@ -1245,7 +1286,8 @@ def toggle_expert_geometry_visibility(attr, old, new):
     widgets["outer_radius_display"].visible = is_ife and new
 
 # Set up visibility toggle callbacks
-# widgets["override_epc"].on_change("active", toggle_epc_slider_visibility)  # Removed
+widgets["override_epc"].on_change("active", toggle_epc_slider_visibility)
+widgets["enable_heat_sales"].on_change("active", toggle_heat_sales_visibility)
 widgets["q_eng_mode"].on_change("value", toggle_q_eng_slider_visibility)
 widgets["reactor_type"].on_change("value", toggle_reactor_type_visibility)
 widgets["magnet_technology"].on_change("value", toggle_magnet_technology_visibility)
@@ -1590,6 +1632,8 @@ sidebar = column(
     # EPC Cost Integration
     Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><style>.sb-tip-wrap{position:relative;display:inline-block}.sb-tip-wrap .sb-tip{visibility:hidden;opacity:0;transition:opacity .2s;position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#001e3c;color:#fff;font-size:11px;font-weight:400;padding:6px 10px;border-radius:6px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3);z-index:10;pointer-events:none}.sb-tip-wrap:hover .sb-tip{visibility:visible;opacity:1}.sb-tip-wrap .sb-lbl{cursor:help;background:rgba(160,196,255,.15);padding:2px 6px;border-radius:4px;transition:background .2s}.sb-tip-wrap:hover .sb-lbl{background:rgba(160,196,255,.3)}</style><span class='sb-tip-wrap'><span class='sb-lbl'>EPC Cost Integration<sup>?</sup></span><span class='sb-tip'>Total cost to design, procure equipment, and build the plant</span></span></h3>"),
     widgets["auto_epc_display"],
+    widgets["override_epc"],
+    widgets["override_epc_value"],
     
     # Q Engineering Integration
     Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Q Engineering Integration<sup>?</sup></span><span class='sb-tip'>Energy amplification factor (fusion power out / heating power in)</span></span></h3>"),
@@ -1600,7 +1644,6 @@ sidebar = column(
     # Financial parameters
     Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Financial Parameters<sup>?</sup></span><span class='sb-tip'>Debt structure, interest rates, and loan terms</span></span></h3>"),
     widgets["input_debt_pct"],
-    widgets["cost_of_debt"],
     widgets["loan_rate"],
     widgets["financing_fee"],
     widgets["repayment_term_years"],
@@ -1614,6 +1657,12 @@ sidebar = column(
     widgets["fixed_om_per_mw"],
     widgets["variable_om"],
     widgets["electricity_price"],
+    
+    # Industrial heat sales
+    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Industrial Heat Sales<sup>?</sup></span><span class='sb-tip'>Optional revenue from selling thermal energy to industrial customers</span></span></h3>"),
+    widgets["enable_heat_sales"],
+    widgets["heat_sales_fraction"],
+    widgets["heat_price_per_mwh_th"],
     
     # Operations
     Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Operations<sup>?</sup></span><span class='sb-tip'>Lifetime, depreciation, decommissioning, tax &amp; ramp-up</span></span></h3>"),
@@ -1992,6 +2041,8 @@ for w in widgets.values():
             w.on_change(
                 "value" if not isinstance(w, Checkbox) else "active", make_callback(w)
             )
+        elif isinstance(w, RadioButtonGroup):
+            w.on_change("active", make_callback(w))
 
 
 # --- Sensitivity Analysis Button Callback ---

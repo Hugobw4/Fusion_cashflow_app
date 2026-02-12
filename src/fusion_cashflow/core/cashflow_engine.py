@@ -528,7 +528,6 @@ def get_default_config():
         
         # Financial parameters
         "input_debt_pct": 0.50,
-        "cost_of_debt": 0.05,
         "loan_rate": 0.05,
         "financing_fee": 0.015,
         "repayment_term_years": 20,
@@ -559,6 +558,15 @@ def get_default_config():
         "ramp_up": True,
         "ramp_up_years": 3,
         "ramp_up_rate_per_year": 0.33,
+        
+        # Industrial heat sales
+        "enable_heat_sales": False,
+        "heat_sales_fraction": 0.10,
+        "heat_price_per_mwh_th": 30,
+        
+        # EPC override
+        "override_epc": False,
+        "override_epc_value": 5000000000,
     }
 
 
@@ -581,12 +589,10 @@ def get_pwr_config():
         "capacity_factor": 0.90,
         "fuel_type": "Fission Benchmark Enriched Uranium",
         "input_debt_pct": 0.70,
-        "cost_of_debt": 0.05,
         "loan_rate": 0.05,
         "financing_fee": 0.01,
         "repayment_term_years": 30,
         "grace_period_years": 3,
-        "total_epc_cost": 35000000000,
         "extra_capex_pct": 0.0,
         "project_contingency_pct": 0.0,
         "process_contingency_pct": 0.0,
@@ -604,6 +610,15 @@ def get_pwr_config():
         "ramp_up": True,
         "ramp_up_years": 3,
         "ramp_up_rate_per_year": 0.33,
+        
+        # Industrial heat sales
+        "enable_heat_sales": False,
+        "heat_sales_fraction": 0.10,
+        "heat_price_per_mwh_th": 30,
+        
+        # EPC override
+        "override_epc": False,
+        "override_epc_value": 35000000000,
     }
 
 
@@ -624,7 +639,6 @@ def get_ife_config():
         "capacity_factor": 0.85,  # Slightly lower than MFE due to laser maintenance
         "fuel_type": "Tritium",
         "input_debt_pct": 0.70,
-        "cost_of_debt": 0.06,  # Slightly higher risk than MFE
         "loan_rate": 0.06,
         "financing_fee": 0.02,
         "repayment_term_years": 20,
@@ -649,6 +663,16 @@ def get_ife_config():
         "ramp_up": True,
         "ramp_up_years": 2,
         "ramp_up_rate_per_year": 0.5,
+        
+        # Industrial heat sales
+        "enable_heat_sales": False,
+        "heat_sales_fraction": 0.10,
+        "heat_price_per_mwh_th": 30,
+        
+        # EPC override
+        "override_epc": False,
+        "override_epc_value": 5000000000,
+        
         # IFE-specific parameters
         "impfreq": 1.0,  # Implosion frequency in Hz
     }
@@ -705,7 +729,6 @@ def run_cashflow_scenario(config):
     capacity_factor = config["capacity_factor"]  # Use config value directly
     input_debt_pct = config["input_debt_pct"]
     input_equity_pct = 1.0 - input_debt_pct
-    cost_of_debt = config["cost_of_debt"]
     loan_rate = config["loan_rate"]
     financing_fee = config["financing_fee"]
     repayment_term_years = config["repayment_term_years"]
@@ -714,34 +737,47 @@ def run_cashflow_scenario(config):
     grace_period_years = int(round(grace_period_years))
     
     # --- Power-to-EPC Integration (cached when only financial params change) ---
-    try:
-        epc_result = _compute_epc_cached(config)
-        total_epc_cost = epc_result["total_epc"]
-        
-        config["_epc_breakdown"] = epc_result
-        config["_q_eng"] = epc_result.get("power_balance", {}).get("q_eng", 0)
-        
-        # Use physics-derived P_net for revenue/energy/O&M consistency
-        p_net_from_costing = epc_result.get("power_balance", {}).get("p_net", None)
-        if p_net_from_costing is not None and p_net_from_costing > 0:
-            net_electric_power_mw = p_net_from_costing
-            config["net_electric_power_mw"] = p_net_from_costing
-        
-        # Use costing-derived O&M if available (physics-based, CAS 70)
-        costing_fixed_om = epc_result.get("costing_fixed_om_per_mw", None)
-        if costing_fixed_om is not None and costing_fixed_om > 0:
-            config["fixed_om_per_mw"] = costing_fixed_om
-        
-        # Use costing-derived annual fuel cost if available (physics-based, CAS 80)
-        costing_fuel = epc_result.get("costing_annual_fuel_cost", None)
-        if costing_fuel is not None:
-            config["_costing_annual_fuel_cost"] = costing_fuel
-        
-    except Exception as e:
-        warnings.warn(f"Embedded costing system failed: {e}. Using default $5B EPC cost.")
-        total_epc_cost = 5_000_000_000
+    p_thermal_mw = 0.0  # Will be set from costing if available
+    
+    if config.get("override_epc", False):
+        # Manual EPC override — skip costing entirely, use slider values for P_net/O&M
+        total_epc_cost = config.get("override_epc_value", 5_000_000_000)
         config["_epc_breakdown"] = {}
-        config["_q_eng"] = 1.0
+        config["_q_eng"] = config.get("manual_q_eng", 4.0)
+    else:
+        try:
+            epc_result = _compute_epc_cached(config)
+            total_epc_cost = epc_result["total_epc"]
+            
+            config["_epc_breakdown"] = epc_result
+            config["_q_eng"] = epc_result.get("power_balance", {}).get("q_eng", 0)
+            
+            # Use physics-derived P_net for revenue/energy/O&M consistency
+            p_net_from_costing = epc_result.get("power_balance", {}).get("p_net", None)
+            if p_net_from_costing is not None and p_net_from_costing > 0:
+                net_electric_power_mw = p_net_from_costing
+                config["net_electric_power_mw"] = p_net_from_costing
+            
+            # Extract p_thermal for industrial heat sales
+            p_thermal_from_costing = epc_result.get("power_balance", {}).get("p_thermal", 0)
+            if p_thermal_from_costing and p_thermal_from_costing > 0:
+                p_thermal_mw = p_thermal_from_costing
+            
+            # Use costing-derived O&M if available (physics-based, CAS 70)
+            costing_fixed_om = epc_result.get("costing_fixed_om_per_mw", None)
+            if costing_fixed_om is not None and costing_fixed_om > 0:
+                config["fixed_om_per_mw"] = costing_fixed_om
+            
+            # Use costing-derived annual fuel cost if available (physics-based, CAS 80)
+            costing_fuel = epc_result.get("costing_annual_fuel_cost", None)
+            if costing_fuel is not None:
+                config["_costing_annual_fuel_cost"] = costing_fuel
+            
+        except Exception as e:
+            warnings.warn(f"Embedded costing system failed: {e}. Using default $5B EPC cost.")
+            total_epc_cost = 5_000_000_000
+            config["_epc_breakdown"] = {}
+            config["_q_eng"] = 1.0
     
     extra_capex = total_epc_cost * config["extra_capex_pct"]
     # NOTE: Contingency is handled by CAS 29 in the costing module.
@@ -809,7 +845,8 @@ def run_cashflow_scenario(config):
         avg_annual_return = 0.07
     market_risk_premium = avg_annual_return - risk_free_rate
     cost_of_equity = risk_free_rate + levered_beta * market_risk_premium
-    cost_of_debt_posttax = cost_of_debt * (1 - tax_rate)
+    cost_of_debt = loan_rate  # Pre-tax cost of debt = nominal loan rate
+    cost_of_debt_posttax = loan_rate * (1 - tax_rate)  # After-tax cost of debt
     wacc = input_equity_pct * cost_of_equity + input_debt_pct * cost_of_debt_posttax
     discount_rate = wacc
     financing_charges = total_epc_cost * financing_fee
@@ -831,6 +868,7 @@ def run_cashflow_scenario(config):
     # --- Debt/amortization/depreciation setup ---
     cashflow_type = []
     revenue_vec = []
+    heat_revenue_vec = []
     fuel_vec = []
     om_vec = []
     depreciation_vec = []
@@ -887,6 +925,7 @@ def run_cashflow_scenario(config):
         )
         cashflow_type.append("Construction")
         revenue_vec.append(0)
+        heat_revenue_vec.append(0)
         fuel_vec.append(0)
         om_vec.append(0)
         depreciation_vec.append(0)
@@ -920,8 +959,22 @@ def run_cashflow_scenario(config):
             ramp_mult = 1.0
         price = electricity_price * esc
         annual_energy = annual_energy_output_mwh * ramp_mult
+        
+        # --- Industrial heat sales ---
+        heat_rev = 0.0
+        enable_heat_sales = config.get("enable_heat_sales", False)
+        if enable_heat_sales and p_thermal_mw > 0:
+            heat_frac = config.get("heat_sales_fraction", 0.10)
+            heat_price = config.get("heat_price_per_mwh_th", 30) * esc
+            # Thermal energy sold as heat (MWh_th)
+            heat_energy_mwh_th = p_thermal_mw * 8760 * capacity_factor * heat_frac * ramp_mult
+            heat_rev = heat_energy_mwh_th * heat_price
+            # Reduce electricity output — diverted thermal energy doesn't reach turbine
+            annual_energy *= (1.0 - heat_frac)
+        
         energy_vec.append(annual_energy)
-        revenue = annual_energy * price
+        revenue = annual_energy * price + heat_rev
+        heat_revenue_vec.append(heat_rev)
         revenue_vec.append(revenue)
         if use_costing_fuel:
             # Costing-derived fuel: scale by ramp and escalation
@@ -1144,6 +1197,7 @@ def run_cashflow_scenario(config):
         "equity_cf_vec": equity_cf_vec,
         "cumulative_equity_cf_vec": cumulative_equity_cf_vec,
         "energy_vec": energy_vec,
+        "heat_revenue_vec": heat_revenue_vec,
         "toc": toc,
         "total_epc_cost": total_epc_cost,
         "input_equity_pct": input_equity_pct,

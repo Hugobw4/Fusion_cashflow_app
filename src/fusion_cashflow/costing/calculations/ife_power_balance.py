@@ -119,7 +119,7 @@ def compute_ife_driver_cost(data: CostingData) -> M_USD:
     # Laser driver cost scaling: ~$1000/J delivered
     # Includes amplifiers, optics, beam control
     cost_per_joule = 0.001  # M$/J = $1000/J
-    driver_cost = M_USD(driver_energy_mj * 1e6 * cost_per_joule * inp.rep_rate**0.3)
+    driver_cost = M_USD(driver_energy_mj * 1e6 * cost_per_joule * inp.rep_rate_hz**0.3)
     
     # Scale with driver efficiency (less efficient = bigger driver = more cost)
     efficiency_factor = 0.1 / inp.driver_efficiency  # Normalized to 10%

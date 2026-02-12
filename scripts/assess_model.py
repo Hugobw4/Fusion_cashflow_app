@@ -59,8 +59,8 @@ def assess_model():
     financial_scenarios = [
         ({"input_debt_pct": 0.0}, "100% Equity"),
         ({"input_debt_pct": 0.95}, "95% Debt"),
-        ({"cost_of_debt": 0.001}, "0.1% Interest"),
-        ({"cost_of_debt": 0.25}, "25% Interest"),
+        ({"loan_rate": 0.001}, "0.1% Interest"),
+        ({"loan_rate": 0.25}, "25% Interest"),
         ({"electricity_price": 10}, "$10/MWh Price"),
         ({"electricity_price": 500}, "$500/MWh Price"),
         ({"capacity_factor": 0.1}, "10% Capacity"),
@@ -133,7 +133,7 @@ def assess_model():
         ({
             "net_electric_power_mw": 0.5,
             "input_debt_pct": 0.95,
-            "cost_of_debt": 0.20,
+            "loan_rate": 0.20,
             "electricity_price": 15
         }, "Worst Case: Tiny + High Debt + High Interest + Low Price"),
         ({

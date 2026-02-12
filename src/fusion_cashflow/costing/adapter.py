@@ -71,6 +71,8 @@ def _config_to_costing_data(config: dict) -> CostingData:
     
     if 'is_foak' in config:
         data.basic.is_foak = config['is_foak']
+    elif 'noak' in config:
+        data.basic.is_foak = not config['noak']  # noak=True → is_foak=False
     
     if 'capacity_factor' in config:
         data.basic.capacity_factor = config['capacity_factor']
@@ -307,35 +309,39 @@ def _costing_data_to_result_dict(data: CostingData) -> Dict[str, Any]:
     Returns:
         Dict matching legacy output format
     """
+    def _real(v):
+        """Coerce complex values to float (guards against negative-base exponents)."""
+        return float(v.real) if isinstance(v, complex) else float(v)
+
     result = {}
     
     # ===== Power balance =====
     pb = data.power_balance_out
     result['power_balance'] = {
-        'p_fusion': float(pb.p_fusion),
-        'p_thermal': float(pb.p_thermal),
-        'p_electric_gross': float(pb.p_electric_gross),
-        'p_net': float(pb.p_net),
-        'p_electric_net': float(pb.p_net),  # Alias for backward compatibility
-        'p_recirculating': float(pb.p_recirculating),
+        'p_fusion': _real(pb.p_fusion),
+        'p_thermal': _real(pb.p_thermal),
+        'p_electric_gross': _real(pb.p_electric_gross),
+        'p_net': _real(pb.p_net),
+        'p_electric_net': _real(pb.p_net),  # Alias for backward compatibility
+        'p_recirculating': _real(pb.p_recirculating),
         'eta_th': pb.eta_th,
     }
     result['q_eng'] = pb.q_eng
     
     # ===== Volumes =====
-    result['volumes'] = {k: float(v) for k, v in data.volumes.items()}
+    result['volumes'] = {k: _real(v) for k, v in data.volumes.items()}
     
     # ===== CAS costs =====
     # CAS 10
-    result['cas_10_preconstruction'] = float(data.cas10_out.C100000)
+    result['cas_10_preconstruction'] = _real(data.cas10_out.C100000)
     
     # CAS 21
-    result['cas_21_total'] = float(data.cas21_out.C210000)
+    result['cas_21_total'] = _real(data.cas21_out.C210000)
     
     # CAS 21 sub-accounts (for dashboard display)
-    result['building_reactor_building'] = float(data.cas21_out.C210100)
-    result['building_turbine_building'] = float(data.cas21_out.C210200)
-    result['building_auxiliary_buildings'] = float(
+    result['building_reactor_building'] = _real(data.cas21_out.C210100)
+    result['building_turbine_building'] = _real(data.cas21_out.C210200)
+    result['building_auxiliary_buildings'] = _real(
         data.cas21_out.C210300 + data.cas21_out.C210400 + data.cas21_out.C210500 +
         data.cas21_out.C210600 + data.cas21_out.C210700 + data.cas21_out.C210800 +
         data.cas21_out.C210900 + data.cas21_out.C211000 + data.cas21_out.C211100 +
@@ -344,68 +350,68 @@ def _costing_data_to_result_dict(data: CostingData) -> Dict[str, Any]:
     )
     
     # CAS 22 (reactor equipment)
-    result['cas_22_total'] = float(data.cas22_out.C220000)
-    result['cas_2201'] = float(data.cas22_out.cas2201.C220100)
-    result['cas_2202'] = float(data.cas22_out.cas2202.C220200)
-    result['cas_2203'] = float(data.cas22_out.cas2203.C220300)
-    result['cas_2204'] = float(data.cas22_out.cas2204.C220400)
-    result['cas_2205'] = float(data.cas22_out.cas2205.C220500)
-    result['cas_2206'] = float(data.cas22_out.cas2206.C220600)
-    result['cas_2207'] = float(data.cas22_out.cas2207.C220700)
+    result['cas_22_total'] = _real(data.cas22_out.C220000)
+    result['cas_2201'] = _real(data.cas22_out.cas2201.C220100)
+    result['cas_2202'] = _real(data.cas22_out.cas2202.C220200)
+    result['cas_2203'] = _real(data.cas22_out.cas2203.C220300)
+    result['cas_2204'] = _real(data.cas22_out.cas2204.C220400)
+    result['cas_2205'] = _real(data.cas22_out.cas2205.C220500)
+    result['cas_2206'] = _real(data.cas22_out.cas2206.C220600)
+    result['cas_2207'] = _real(data.cas22_out.cas2207.C220700)
     
     # CAS 22.01.01 sub-components (for dashboard display)
     cas220101 = data.cas22_out.cas2201.cas220101
-    result['firstwall'] = float(cas220101.C22010101)
-    result['blanket'] = float(cas220101.C22010102)
-    result['shield'] = float(cas220101.C22010103)
-    result['divertor'] = float(cas220101.C22010104)
+    result['firstwall'] = _real(cas220101.C22010101)
+    result['blanket'] = _real(cas220101.C22010102)
+    result['shield'] = _real(cas220101.C22010103)
+    result['divertor'] = _real(cas220101.C22010104)
     
     # Legacy names (for backward compat)
     result['heating_systems'] = result['cas_2204']
     result['coolant_system'] = result['cas_2202']
-    result['tritium_systems'] = float(data.cas27_out.C270000)
-    result['instrumentation'] = float(data.cas28_out.C280000)
+    result['tritium_systems'] = _real(data.cas27_out.C270000)
+    result['instrumentation'] = _real(data.cas28_out.C280000)
     result['vacuum_system'] = result['cas_2205']
     
     # CAS 23-28
-    result['cas_23_turbine'] = float(data.cas23_out.C230000)
-    result['cas_24_electrical'] = float(data.cas24_out.C240000)
-    result['cas_25_misc'] = float(data.cas25_out.C250000)
-    result['cas_26_cooling'] = float(data.cas26_out.C260000)
-    result['cas_27_materials'] = float(data.cas27_out.C270000)
-    result['cas_28_instrumentation'] = float(data.cas28_out.C280000)
+    result['cas_23_turbine'] = _real(data.cas23_out.C230000)
+    result['cas_24_electrical'] = _real(data.cas24_out.C240000)
+    result['cas_25_misc'] = _real(data.cas25_out.C250000)
+    result['cas_26_cooling'] = _real(data.cas26_out.C260000)
+    result['cas_27_materials'] = _real(data.cas27_out.C270000)
+    result['cas_28_instrumentation'] = _real(data.cas28_out.C280000)
     
     # CAS 29-40
-    result['cas_29_contingency'] = float(data.cas29_out.C290000)
-    result['cas_30_indirect'] = float(data.cas30_out.C300000)
-    result['cas_40_owner_costs'] = float(data.cas40_out.C400000)
+    result['cas_29_contingency'] = _real(data.cas29_out.C290000)
+    result['cas_30_indirect'] = _real(data.cas30_out.C300000)
+    result['cas_40_owner_costs'] = _real(data.cas40_out.C400000)
     
     # Totals
-    result['total_capital_cost'] = float(data.total_capital_cost)
-    result['total_epc_cost'] = float(data.total_epc_cost)
+    result['total_capital_cost'] = _real(data.total_capital_cost)
+    result['total_epc_cost'] = _real(data.total_epc_cost)
     
     # Annualized costs from costing module (CAS 70/80/90) [M$/yr]
-    result['cas_70_annual_om'] = float(data.cas70_out.C700000)       # M$/yr
-    result['cas_80_annual_fuel'] = float(data.cas80_out.C800000)     # M$/yr
-    result['cas_90_annual_capital'] = float(data.cas90_out.C900000)  # M$/yr
+    result['cas_70_annual_om'] = _real(data.cas70_out.C700000)       # M$/yr
+    result['cas_80_annual_fuel'] = _real(data.cas80_out.C800000)     # M$/yr
+    result['cas_90_annual_capital'] = _real(data.cas90_out.C900000)  # M$/yr
     
     # Net electric power from power balance (MW) — used for per-kW and per-MW metrics
-    p_net = float(pb.p_net)
+    p_net = _real(pb.p_net)
     
     # Derived O&M parameters for cashflow engine (so it uses physics-based values)
     if p_net > 0:
         # fixed_om_per_mw = CAS 70 annual O&M / P_net ($/MW/yr)
-        result['costing_fixed_om_per_mw'] = (float(data.cas70_out.C700000) * 1e6) / p_net
+        result['costing_fixed_om_per_mw'] = (_real(data.cas70_out.C700000) * 1e6) / p_net
         # Annual fuel cost ($)
-        result['costing_annual_fuel_cost'] = float(data.cas80_out.C800000) * 1e6
+        result['costing_annual_fuel_cost'] = _real(data.cas80_out.C800000) * 1e6
     else:
         result['costing_fixed_om_per_mw'] = 60000.0
         result['costing_annual_fuel_cost'] = 0.0
     
     # Per-kW metrics
     if p_net > 0:
-        result['cost_per_kw_net'] = float(data.total_capital_cost) / (p_net * 1000.0)
-        result['epc_per_kw_net'] = float(data.total_epc_cost) / (p_net * 1000.0)
+        result['cost_per_kw_net'] = _real(data.total_capital_cost) / (p_net * 1000.0)
+        result['epc_per_kw_net'] = _real(data.total_epc_cost) / (p_net * 1000.0)
     else:
         result['cost_per_kw_net'] = 0.0
         result['epc_per_kw_net'] = 0.0

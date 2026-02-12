@@ -156,6 +156,10 @@ def compute_cas30(data: CostingData) -> None:
     factor = data.cas30_in.construction_services_factor  # 0.22 default
     
     # Formula: (p_net/150)^-0.5 × p_net × factor × construction_time
+    # Guard: if p_net <= 0 the power balance is invalid; return zero cost
+    if p_net <= 0:
+        data.cas30_out.C300000 = M_USD(0.0)
+        return
     cost = ((p_net / 150.0) ** -0.5) * p_net * factor * construction_time
     data.cas30_out.C300000 = M_USD(cost)
 
