@@ -347,6 +347,14 @@ div[data-root-id] {
     padding-top: 0 !important;
 }
 
+/* Fix widget labels - make them visible on dark background */
+.bk-root label {
+    color: #ffffff !important;
+    font-family: "Inter, Helvetica, Arial, sans-serif" !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+}
+
 .bk-root .bk-btn, .bk-root .bk-input, .bk-root .bk-slider, .bk-root .bk-select {
     border-radius: 16px !important;
     font-family: "Inter, Helvetica, Arial, sans-serif" !important;
@@ -357,6 +365,13 @@ div[data-root-id] {
     border: 1px solid #e0e0e0 !important;
     box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
 }
+
+/* Text input fields - light background for readability */
+.bk-root .bk-input input[type="text"] {
+    background: #f0f0f0 !important;
+    color: #000000 !important;
+}
+
 .bk-root .bk-btn-primary {
     background: #00375b !important;
     color: #ffffff !important;
@@ -382,6 +397,16 @@ div[data-root-id] {
     color: #ffffff;
     font-family: "Inter, Helvetica, Arial, sans-serif";
     font-weight: 800;
+}
+
+/* RadioButtonGroup and Checkbox styling */
+.bk-root .bk-btn-group button {
+    background: #004d73 !important;
+    color: #ffffff !important;
+}
+.bk-root .bk-btn-group button.bk-active {
+    background: #00375b !important;
+    color: #4CAF50 !important;
 }
 </style>
 """
