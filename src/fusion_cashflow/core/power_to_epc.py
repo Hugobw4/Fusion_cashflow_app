@@ -225,6 +225,12 @@ def compute_epc(cfg: Dict[str, Any]) -> Dict[str, Any]:
             "cas_2205": costing_results.get("cas_2205", 0) * 1e6,
             "cas_2206": costing_results.get("cas_2206", 0) * 1e6,
             "cas_2207": costing_results.get("cas_2207", 0) * 1e6,
+            
+            # CAS 22.01.01 sub-components (reactor internals)
+            "firstwall": costing_results.get("firstwall", 0) * 1e6,
+            "blanket": costing_results.get("blanket", 0) * 1e6,
+            "shield": costing_results.get("shield", 0) * 1e6,
+            "divertor": costing_results.get("divertor", 0) * 1e6,
         },
         
         "power_balance": {

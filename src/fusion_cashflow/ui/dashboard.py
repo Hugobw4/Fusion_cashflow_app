@@ -944,22 +944,19 @@ def update_dashboard():
                 f"<div style='color:#aaa; font-size:13px; margin:2px 0;'>Derived Heating Power: {p_heating_derived:.1f} MW</div>")
             
             # Update material cost preview
-            # Sum of firstwall + blanket + structure + shield from detailed result
+            # Sum of firstwall + blanket + shield from detailed result
             detailed = epc_result.get("detailed_result", {})
-            cas22_details = detailed.get("CAS 22 - Reactor Equipment", {})
             material_cost = (
-                cas22_details.get("First Wall", 0) +
-                cas22_details.get("Blanket", 0) +
-                cas22_details.get("Shield", 0)
+                detailed.get("firstwall", 0) +
+                detailed.get("blanket", 0) +
+                detailed.get("shield", 0)
             )
             widgets["material_cost_preview"].text = (
                 f"<div style='color:#aaa; font-size:12px; margin:5px 0;'>Estimated material cost: ${material_cost/1e6:.1f}M</div>")
             
             # Update magnet cost preview (MFE only)
             if config.get("reactor_type") == "MFE Tokamak":
-                detailed = epc_result.get("detailed_result", {})
-                cas22 = detailed.get("CAS 22 - Reactor Equipment", {})
-                magnet_cost = cas22.get("Magnets", 0)
+                magnet_cost = detailed.get("cas_2203", 0)
                 widgets["magnet_cost_preview"].text = (
                     f"<div style='color:#aaa; font-size:12px; margin:5px 0;'>Estimated magnet cost: ${magnet_cost/1e6:.1f}M</div>")
             
@@ -1563,7 +1560,24 @@ sens_download = make_download_button(sens_source, " Download Sensitivity Data", 
 
 
 # --- Layout ---
-# --- Layout ---
+# Tooltip CSS for sidebar section headers (each Bokeh Div is isolated, so every tooltip needs its own style block)
+_TIP_CSS = (
+    "<style>"
+    ".sb-tip-wrap{position:relative;display:inline-block}"
+    ".sb-tip-wrap .sb-tip{visibility:hidden;opacity:0;transition:opacity .2s;position:absolute;bottom:110%;left:50%;transform:translateX(-50%);"
+    "background:#001e3c;color:#fff;font-size:11px;font-weight:400;padding:6px 10px;border-radius:6px;white-space:nowrap;"
+    "box-shadow:0 2px 8px rgba(0,0,0,.3);z-index:10;pointer-events:none}"
+    ".sb-tip-wrap:hover .sb-tip{visibility:visible;opacity:1}"
+    ".sb-tip-wrap .sb-lbl{cursor:help;background:rgba(160,196,255,.15);padding:2px 6px;border-radius:4px;transition:background .2s}"
+    ".sb-tip-wrap:hover .sb-lbl{background:rgba(160,196,255,.3)}"
+    "</style>"
+)
+_H3 = "margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;"
+
+def _section_tip(label: str, tip: str) -> Div:
+    """Return a sidebar section header Div with a hover tooltip."""
+    return Div(text=f"<h3 style='{_H3}'>{_TIP_CSS}<span class='sb-tip-wrap'><span class='sb-lbl'>{label}<sup>?</sup></span><span class='sb-tip'>{tip}</span></span></h3>")
+
 sidebar = column(
     Div(text=APPLE_CSS),
     # Logo - Using static file serving
@@ -1630,19 +1644,19 @@ sidebar = column(
     widgets["target_gain"],
     
     # EPC Cost Integration
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><style>.sb-tip-wrap{position:relative;display:inline-block}.sb-tip-wrap .sb-tip{visibility:hidden;opacity:0;transition:opacity .2s;position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#001e3c;color:#fff;font-size:11px;font-weight:400;padding:6px 10px;border-radius:6px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3);z-index:10;pointer-events:none}.sb-tip-wrap:hover .sb-tip{visibility:visible;opacity:1}.sb-tip-wrap .sb-lbl{cursor:help;background:rgba(160,196,255,.15);padding:2px 6px;border-radius:4px;transition:background .2s}.sb-tip-wrap:hover .sb-lbl{background:rgba(160,196,255,.3)}</style><span class='sb-tip-wrap'><span class='sb-lbl'>EPC Cost Integration<sup>?</sup></span><span class='sb-tip'>Total cost to design, procure equipment, and build the plant</span></span></h3>"),
+    _section_tip("EPC Cost Integration", "Total cost to design, procure equipment, and build the plant"),
     widgets["auto_epc_display"],
     widgets["override_epc"],
     widgets["override_epc_value"],
     
     # Q Engineering Integration
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Q Engineering Integration<sup>?</sup></span><span class='sb-tip'>Energy amplification factor (fusion power out / heating power in)</span></span></h3>"),
+    _section_tip("Q Engineering Integration", "Energy amplification factor (fusion power out / heating power in)"),
     widgets["q_eng_mode"],
     widgets["calculated_q_eng_display"],
     widgets["manual_q_eng"],
     
     # Financial parameters
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Financial Parameters<sup>?</sup></span><span class='sb-tip'>Debt structure, interest rates, and loan terms</span></span></h3>"),
+    _section_tip("Financial Parameters", "Debt structure, interest rates, and loan terms"),
     widgets["input_debt_pct"],
     widgets["loan_rate"],
     widgets["financing_fee"],
@@ -1650,7 +1664,7 @@ sidebar = column(
     widgets["grace_period_years"],
     
     # Cost parameters
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Cost Parameters<sup>?</sup></span><span class='sb-tip'>CapEx, contingencies, O&amp;M costs, and electricity pricing</span></span></h3>"),
+    _section_tip("Cost Parameters", "CapEx, contingencies, O&amp;M costs, and electricity pricing"),
     widgets["extra_capex_pct"],
     widgets["project_contingency_pct"],
     widgets["process_contingency_pct"],
@@ -1659,13 +1673,13 @@ sidebar = column(
     widgets["electricity_price"],
     
     # Industrial heat sales
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Industrial Heat Sales<sup>?</sup></span><span class='sb-tip'>Optional revenue from selling thermal energy to industrial customers</span></span></h3>"),
+    _section_tip("Industrial Heat Sales", "Optional revenue from selling thermal energy to industrial customers"),
     widgets["enable_heat_sales"],
     widgets["heat_sales_fraction"],
     widgets["heat_price_per_mwh_th"],
     
     # Operations
-    Div(text="<h3 style='margin-top:20px;color:#ffffff; font-family:Inter, Helvetica, Arial, sans-serif; font-weight:800;'><span class='sb-tip-wrap'><span class='sb-lbl'>Operations<sup>?</sup></span><span class='sb-tip'>Lifetime, depreciation, decommissioning, tax &amp; ramp-up</span></span></h3>"),
+    _section_tip("Operations", "Lifetime, depreciation, decommissioning, tax &amp; ramp-up"),
     widgets["dep_years"],
     widgets["salvage_value"],
     widgets["decommissioning_cost"],
