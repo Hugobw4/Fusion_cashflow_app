@@ -10,7 +10,7 @@ setup(
     python_requires=">=3.8",
     install_requires=[
         "numpy>=1.20.0",
-        "pandas>=1.5.0",
+        "pandas>=1.5.0,<3.0.0",
         "bokeh>=3.0.0",
         "holoviews>=1.15.0",
         "scipy>=1.9.0",
