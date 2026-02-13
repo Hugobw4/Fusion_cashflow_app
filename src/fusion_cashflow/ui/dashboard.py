@@ -1289,7 +1289,36 @@ widgets["q_eng_mode"].on_change("value", toggle_q_eng_slider_visibility)
 widgets["reactor_type"].on_change("value", toggle_reactor_type_visibility)
 widgets["magnet_technology"].on_change("value", toggle_magnet_technology_visibility)
 
-outputs = run_cashflow_scenario(config)
+# Initial cashflow calculation with error handling
+try:
+    outputs = run_cashflow_scenario(config)
+    print("Initial cashflow scenario completed successfully")
+except Exception as e:
+    import traceback
+    print(f"ERROR during initial cashflow calculation: {e}")
+    traceback.print_exc()
+    # Provide fallback outputs to prevent dashboard from breaking
+    outputs = {
+        "year_labels_int": list(range(2028, 2088)),
+        "unlevered_cf_vec": [0] * 60,
+        "levered_cf_vec": [0] * 60,
+        "revenue_vec": [0] * 60,
+        "om_vec": [0] * 60,
+        "fuel_vec": [0] * 60,
+        "tax_vec": [0] * 60,
+        "noi_vec": [0] * 60,
+        "cumulative_unlevered_cf_vec": [0] * 60,
+        "cumulative_levered_cf_vec": [0] * 60,
+        "dscr_vec": [0] * 60,
+        "principal_paid_vec": [0] * 60,
+        "interest_paid_vec": [0] * 60,
+        "npv": 0,
+        "irr": 0,
+        "lcoe_val": 0,
+        "payback_period": 0,
+        "avg_dscr": 0,
+        "equity_multiple": 0,
+    }
 
 # Do NOT run sensitivity analysis at startup
 # print('[DEBUG] Calling run_sensitivity_analysis(config)')
@@ -2323,11 +2352,17 @@ try:
     # Add favicon to the document
     doc.template_variables["favicon"] = "assets/favicon.ico?v=20250807"
     
+    print("Dashboard layout created, starting initial update...")
     update_dashboard()
+    print("Initial dashboard update completed")
     
     # Add periodic callback to check for optimization results (runs every 500ms)
     doc.add_periodic_callback(check_optimization_results, 500)
     
+    print("Dashboard module imported successfully")
+    
 except Exception as e:
     import traceback
+    print(f"CRITICAL ERROR during dashboard initialization: {e}")
     traceback.print_exc()
+    raise
