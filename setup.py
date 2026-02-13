@@ -9,7 +9,7 @@ setup(
     package_dir={"": "src"},
     python_requires=">=3.8",
     install_requires=[
-        "numpy>=1.20.0",
+        "numpy>=1.20.0,<2.0.0",
         "pandas>=1.5.0,<3.0.0",
         "bokeh>=3.0.0",
         "holoviews>=1.15.0",
