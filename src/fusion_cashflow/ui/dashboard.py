@@ -408,6 +408,22 @@ div[data-root-id] {
     background: #00375b !important;
     color: #4CAF50 !important;
 }
+
+/* Custom scrollbar styling for sidebar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
 </style>
 """
 
@@ -1755,7 +1771,6 @@ sidebar = column(
     annual_download,
     cum_download,
     dscr_download,
-    sizing_mode="stretch_height",
 )
 
 # --- Chart Explanation Divs ---
@@ -2357,6 +2372,9 @@ sidebar_style = {
     "font-family": "Inter, Helvetica, Arial, sans-serif",
     "font-weight": "800",
     "color": "#ffffff",
+    "height": "100vh",
+    "overflow-y": "auto",
+    "overflow-x": "hidden",
 }
 
 # --- Wrap sidebar in styled container, use tabs directly ---
