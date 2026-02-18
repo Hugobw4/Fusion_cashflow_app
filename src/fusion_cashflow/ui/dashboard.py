@@ -1771,6 +1771,7 @@ sidebar = column(
     annual_download,
     cum_download,
     dscr_download,
+    sizing_mode="stretch_width",
 )
 
 # --- Chart Explanation Divs ---
